@@ -89,6 +89,16 @@ LEDGERLY_KEY_PASSWORD=…
 
 Without those keys, `assembleRelease` still works but produces an unsigned APK.
 
+## How this was built
+
+This project follows a documented build style: pure, tested domain logic; a token-based
+design system; local-first data; and a verify-by-running loop. Two files capture it:
+
+- [`AGENTS.md`](AGENTS.md) — operating manual for AI coding agents in this repo
+  (commands, layout, rules, definition of done). `CLAUDE.md` points to it.
+- [`docs/APP_BUILD_STYLE.md`](docs/APP_BUILD_STYLE.md) — the portable playbook, including a
+  copy-paste prompt you can give any AI on any project.
+
 ## Architecture
 
 ```
