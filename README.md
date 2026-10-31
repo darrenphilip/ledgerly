@@ -122,7 +122,8 @@ app/src/main/java/com/ledgerly/app/
 ## Continuous integration
 
 `.github/workflows/android.yml` runs the unit tests and builds both APKs on every push and
-pull request. Pushing a `v*` tag also creates a GitHub Release with the APKs attached.
+pull request (artifacts are uploaded). Tagged GitHub Releases are published manually with the
+signed release APK attached.
 
 ## Tests
 
