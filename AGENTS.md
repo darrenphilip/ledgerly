@@ -99,8 +99,9 @@ A change is done when **all** of these are true:
 - Branch: `main`. Commit messages: imperative summary line + short body of *why*.
 - Keep the repo lean: build outputs (`app/build/`, `dist/`), keystores and
   `local.properties` are git-ignored. Never force-push `main`.
-- Releases: tag `vX.Y.Z`, build a signed APK, attach it to a GitHub Release with
-  install instructions and the signing certificate SHA-256.
+- Releases: bump the version, write `docs/release-notes/vX.Y.Z.md`, tag `vX.Y.Z` and push the
+  tag — CI builds the signed APK and publishes the GitHub Release. Attach the signing
+  certificate SHA-256 to the notes. Never rotate the release keystore between versions.
 - CI (`.github/workflows/android.yml`) must stay green: tests + both APKs on every push.
 
 ## 7. Communication style

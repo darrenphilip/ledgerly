@@ -66,7 +66,7 @@ Prebuilt APKs are attached to each **GitHub Release** — download the APK on yo
 and open it (allow install from unknown sources), or:
 
 ```bash
-adb install -r ledgerly-1.0.0.apk     # signed release build
+adb install -r ledgerly-1.1.0.apk     # signed release build
 ```
 
 Requires **Android 8.0+** (minSdk 26).
@@ -95,6 +95,10 @@ LEDGERLY_KEY_PASSWORD=…
 ```
 
 Without those keys, `assembleRelease` still works but produces an unsigned APK.
+
+CI signs tagged releases with a keystore held in repo secrets (`LEDGERLY_KEYSTORE_BASE64`,
+`LEDGERLY_KEYSTORE_PASSWORD`, `LEDGERLY_KEY_ALIAS`, `LEDGERLY_KEY_PASSWORD`). The keystore
+must not change: a new key means Android refuses to install the update over the old app.
 
 ## How this was built
 
@@ -147,8 +151,9 @@ app/src/main/java/com/ledgerly/app/
 ## Continuous integration
 
 `.github/workflows/android.yml` runs the unit tests and builds both APKs on every push and
-pull request (artifacts are uploaded). Tagged GitHub Releases are published manually with the
-signed release APK attached.
+pull request (artifacts are uploaded). Pushing a `vX.Y.Z` tag builds a signed release APK and
+publishes it to GitHub Releases using `docs/release-notes/vX.Y.Z.md` as the description, so a
+release only needs the tag and the notes file to exist.
 
 ## Tests
 
