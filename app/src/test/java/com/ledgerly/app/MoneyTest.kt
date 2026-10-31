@@ -1,8 +1,10 @@
 package com.ledgerly.app
 
+import com.ledgerly.app.util.Currencies
 import com.ledgerly.app.util.Money
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoneyTest {
@@ -70,5 +72,52 @@ class MoneyTest {
     fun compact_output_for_charts() {
         assertEquals("$12", Money.compact(1200L, "USD"))
         assertEquals("$1.2k", Money.compact(120000L, "USD"))
+    }
+
+    @Test
+    fun idr_is_offered_with_the_rupiah_symbol() {
+        assertTrue(Currencies.all.any { it.code == "IDR" })
+        assertEquals("Rp", Currencies.symbolOf("IDR"))
+        assertTrue(Money.isWholeUnit("IDR"))
+    }
+
+    @Test
+    fun formats_idr_with_dot_grouping() {
+        assertEquals("Rp 50.000", Money.format(5_000_000L, "IDR"))
+        assertEquals("Rp 1.234.567", Money.format(123_456_700L, "IDR"))
+        assertEquals("-Rp 50.000", Money.format(-5_000_000L, "IDR"))
+        assertEquals("+Rp 50.000", Money.format(5_000_000L, "IDR", showPlus = true))
+    }
+
+    @Test
+    fun parses_idr_amounts_however_they_are_written() {
+        assertEquals(5_000_000L, Money.parseToCents("50000", "IDR"))
+        assertEquals(5_000_000L, Money.parseToCents("50.000", "IDR"))
+        assertEquals(5_000_000L, Money.parseToCents("50,000", "IDR"))
+        assertEquals(123_456_700L, Money.parseToCents("1.234.567", "IDR"))
+    }
+
+    @Test
+    fun parses_idr_fractions_and_rejects_junk() {
+        assertEquals(150L, Money.parseToCents("1,5", "IDR"))
+        assertEquals(5_000L, Money.parseToCents("50.00", "IDR"))
+        assertNull(Money.parseToCents("0", "IDR"))
+        assertNull(Money.parseToCents("abc", "IDR"))
+        assertNull(Money.parseToCents("99999999999", "IDR"))
+    }
+
+    @Test
+    fun idr_prefill_and_placeholder_hide_minor_units() {
+        assertEquals("50000", Money.plain(5_000_000L, "IDR"))
+        assertEquals("0", Money.placeholder("IDR"))
+        assertEquals("1234.56", Money.plain(123_456L, "USD"))
+        assertEquals("0.00", Money.placeholder("USD"))
+    }
+
+    @Test
+    fun idr_compact_labels_use_rb_and_jt() {
+        assertEquals("Rp 50", Money.compact(5_000L, "IDR"))
+        assertEquals("Rp 12rb", Money.compact(1_200_000L, "IDR"))
+        assertEquals("Rp 10jt", Money.compact(1_000_000_000L, "IDR"))
     }
 }

@@ -1,14 +1,17 @@
 package com.ledgerly.app
 
+import com.ledgerly.app.data.Bucket
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.data.TxType
 import com.ledgerly.app.util.BudgetMath
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.YearMonth
+import kotlin.math.abs
 
 class BudgetMathTest {
 
@@ -132,5 +135,102 @@ class BudgetMathTest {
             tx(22, TxType.EXPENSE, 500, "food", LocalDate.of(2026, 10, 9))
         )
         assertEquals(2_698L, BudgetMath.subscriptionsTotal(subs, month))
+    }
+
+    @Test
+    fun split_income_is_exactly_fifty_thirty_twenty() {
+        val split = BudgetMath.splitIncome(1_000_000L)
+        assertEquals(500_000L, split.needsCents)
+        assertEquals(300_000L, split.wantsCents)
+        assertEquals(200_000L, split.savingsCents)
+        assertEquals(1_000_000L, split.totalCents)
+    }
+
+    @Test
+    fun split_income_rounds_to_whole_cents_that_sum_back() {
+        val split = BudgetMath.splitIncome(101L)
+        assertEquals(101L, split.totalCents)
+        assertTrue(abs(split.needsCents - 50.5) <= 1.0)
+        assertTrue(abs(split.wantsCents - 30.3) <= 1.0)
+        assertTrue(abs(split.savingsCents - 20.2) <= 1.0)
+    }
+
+    @Test
+    fun split_income_without_income_is_zero() {
+        assertEquals(0L, BudgetMath.splitIncome(0L).totalCents)
+        assertEquals(0L, BudgetMath.splitIncome(-500L).totalCents)
+    }
+
+    @Test
+    fun bucket_spend_groups_categories() {
+        val stats = BudgetMath.summarize(transactions, month)
+        val spend = BudgetMath.bucketSpend(stats)
+        // needs: home 10_000 + transport 2_000, wants: food 8_000 + shopping 7_000
+        assertEquals(12_000L, spend[Bucket.NEEDS])
+        assertEquals(15_000L, spend[Bucket.WANTS])
+        assertEquals(0L, spend[Bucket.SAVINGS])
+    }
+
+    @Test
+    fun plan_carries_targets_and_spending_per_bucket() {
+        val stats = BudgetMath.summarize(transactions, month)
+        val plan = BudgetMath.plan(stats, 100_000L)
+        assertEquals(3, plan.buckets.size)
+        assertEquals(100_000L, plan.totalTargetCents)
+        assertEquals(27_000L, plan.totalSpentCents)
+        val needs = plan.buckets.first { it.bucket == Bucket.NEEDS }
+        assertEquals(50_000L, needs.targetCents)
+        assertEquals(12_000L, needs.spentCents)
+        assertFalse(needs.isOver)
+        assertEquals(0L, plan.overCents)
+    }
+
+    @Test
+    fun plan_flags_overspent_buckets() {
+        val stats = BudgetMath.summarize(transactions, month)
+        // 20_000 income -> needs 10_000 (spent 12_000), wants 6_000 (spent 15_000)
+        val plan = BudgetMath.plan(stats, 20_000L)
+        val wants = plan.buckets.first { it.bucket == Bucket.WANTS }
+        assertTrue(wants.isOver)
+        assertEquals(9_000L, -wants.remainingCents)
+        assertEquals(11_000L, plan.overCents)
+    }
+
+    @Test
+    fun savings_expense_feeds_the_savings_bucket() {
+        val withSavings = transactions +
+            tx(30, TxType.EXPENSE, 5_000, "savings", LocalDate.of(2026, 10, 6))
+        val stats = BudgetMath.summarize(withSavings, month)
+        assertEquals(5_000L, BudgetMath.bucketSpend(stats)[Bucket.SAVINGS])
+
+        val savings = BudgetMath.plan(stats, 25_000L)
+            .buckets.first { it.bucket == Bucket.SAVINGS }
+        assertEquals(5_000L, savings.targetCents)
+        assertEquals(5_000L, savings.spentCents)
+        assertEquals(0L, savings.remainingCents)
+        assertFalse(savings.isOver)
+    }
+
+    @Test
+    fun effective_income_prefers_settings_then_logged_income() {
+        val stats = BudgetMath.summarize(transactions, month)
+        assertEquals(90_000L, BudgetMath.effectiveIncome(90_000L, stats))
+        assertEquals(50_000L, BudgetMath.effectiveIncome(0L, stats))
+    }
+
+    @Test
+    fun verdicts_read_plainly() {
+        val stats = BudgetMath.summarize(transactions, month)
+        val tight = BudgetMath.plan(stats, 20_000L)
+        assertEquals(
+            "Rp 90 over",
+            BudgetMath.bucketVerdict(tight.buckets.first { it.bucket == Bucket.WANTS }, "IDR")
+        )
+        assertEquals("Rp 110 over across buckets", BudgetMath.planVerdict(tight, "IDR"))
+        assertEquals("On track", BudgetMath.planVerdict(BudgetMath.plan(stats, 200_000L), "IDR"))
+        assertEquals(
+            "Set your monthly income",
+            BudgetMath.planVerdict(BudgetMath.plan(stats, 0L), "IDR")
+        )
     }
 }

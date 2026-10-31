@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.ui.components.LedgerCard
 import com.ledgerly.app.ui.theme.ledgerColors
 import com.ledgerly.app.util.Currencies
@@ -74,8 +75,8 @@ fun OnboardingScreen(
     var step by rememberSaveable { mutableStateOf(0) }
     var name by rememberSaveable { mutableStateOf("") }
     var currency by rememberSaveable { mutableStateOf(defaultCurrency) }
-    var budgetText by rememberSaveable { mutableStateOf("3200") }
-    var useSample by rememberSaveable { mutableStateOf(true) }
+    var budgetText by rememberSaveable { mutableStateOf(defaultBudgetText(defaultCurrency)) }
+    var useSample by rememberSaveable { mutableStateOf(SampleData.available) }
 
     Box(
         modifier = Modifier
@@ -109,7 +110,12 @@ fun OnboardingScreen(
                     name = name,
                     onNameChange = { if (it.length <= 30) name = it },
                     currency = currency,
-                    onCurrencyChange = { currency = it },
+                    onCurrencyChange = { next ->
+                        // Keep the suggested budget sensible when the currency changes.
+                        val untouched = budgetText == defaultBudgetText(currency)
+                        currency = next
+                        if (untouched) budgetText = defaultBudgetText(next)
+                    },
                     budgetText = budgetText,
                     onBudgetChange = { input ->
                         if (input.length <= 14 && input.all { c -> c.isDigit() || c == '.' || c == ',' }) {
@@ -123,14 +129,20 @@ fun OnboardingScreen(
                         onComplete(
                             name,
                             currency,
-                            Money.parseToCents(budgetText) ?: 0L,
-                            useSample
+                            Money.parseToCents(budgetText, currency) ?: 0L,
+                            useSample && SampleData.available
                         )
                     }
                 )
             }
         }
     }
+}
+
+/** Suggested monthly budget for a currency, as typed text. Empty in release builds. */
+private fun defaultBudgetText(currency: String): String {
+    val cents = SampleData.defaultMonthlyBudgetCents(currency)
+    return if (cents > 0L) Money.plain(cents, currency) else ""
 }
 
 @Composable
@@ -377,40 +389,42 @@ private fun SetupStep(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
-            placeholder = { Text("0.00") },
+            placeholder = { Text(Money.placeholder(currency)) },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             supportingText = { Text("You can change this any time.") }
         )
 
-        Spacer(Modifier.height(18.dp))
-        LedgerCard(contentPadding = PaddingValues(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("✨", fontSize = 18.sp)
+        if (SampleData.available) {
+            Spacer(Modifier.height(18.dp))
+            LedgerCard(contentPadding = PaddingValues(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✨", fontSize = 18.sp)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Start with sample data",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Four months of example spending so you can explore right away.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Switch(checked = useSample, onCheckedChange = onUseSampleChange)
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Start with sample data",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Four months of example spending so you can explore right away.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Switch(checked = useSample, onCheckedChange = onUseSampleChange)
             }
         }
 

@@ -209,6 +209,13 @@ fun StatTile(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
+    // Whole-unit currencies (rupiah) produce longer strings; step the size down instead of
+    // ellipsizing the number the user came to read.
+    val valueStyle = if (value.length > 9) {
+        MaterialTheme.typography.titleMedium
+    } else {
+        MaterialTheme.typography.titleLarge
+    }
     LedgerCard(modifier = modifier, contentPadding = PaddingValues(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -231,7 +238,7 @@ fun StatTile(
                 )
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = valueStyle,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,

@@ -65,10 +65,10 @@ fun BudgetSheet(
         mutableStateOf(existingCategoryKey ?: availableCategories.firstOrNull()?.key)
     }
     var amountText by remember {
-        mutableStateOf(existingLimitCents?.let { Money.plain(it) } ?: "")
+        mutableStateOf(existingLimitCents?.let { Money.plain(it, currency) } ?: "")
     }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    val amountCents = Money.parseToCents(amountText)
+    val amountCents = Money.parseToCents(amountText, currency)
     val existingCategory = existingCategoryKey?.let { Categories.of(it) }
 
     ModalBottomSheet(
@@ -147,7 +147,7 @@ fun BudgetSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                placeholder = { Text("0.00") },
+                placeholder = { Text(Money.placeholder(currency)) },
                 singleLine = true,
                 shape = RoundedCornerShape(18.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -253,13 +253,14 @@ fun BudgetAmountDialog(
     description: String,
     initialCents: Long,
     currency: String,
+    removeLabel: String = "Remove monthly budget",
     onDismiss: () -> Unit,
     onSave: (Long) -> Unit
 ) {
     var amountText by remember {
-        mutableStateOf(if (initialCents > 0L) Money.plain(initialCents) else "")
+        mutableStateOf(if (initialCents > 0L) Money.plain(initialCents, currency) else "")
     }
-    val amountCents = Money.parseToCents(amountText)
+    val amountCents = Money.parseToCents(amountText, currency)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -286,7 +287,7 @@ fun BudgetAmountDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
-                    placeholder = { Text("0.00") },
+                    placeholder = { Text(Money.placeholder(currency)) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -294,7 +295,7 @@ fun BudgetAmountDialog(
                 if (initialCents > 0L) {
                     TextButton(onClick = { onSave(0L) }) {
                         Text(
-                            text = "Remove monthly budget",
+                            text = removeLabel,
                             color = MaterialTheme.colorScheme.error
                         )
                     }

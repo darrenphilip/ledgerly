@@ -32,8 +32,10 @@ class LedgerRepository(context: Context) {
         }.getOrDefault(ThemeMode.SYSTEM)
         return AppSettings(
             name = prefs.getString("name", "") ?: "",
-            currency = prefs.getString("currency", "USD") ?: "USD",
+            currency = prefs.getString("currency", DEFAULT_CURRENCY) ?: DEFAULT_CURRENCY,
             monthlyBudgetCents = prefs.getLong("monthly_budget_cents", 0L),
+            budgetStyle = BudgetStyle.from(prefs.getString("budget_style", null)),
+            monthlyIncomeCents = prefs.getLong("monthly_income_cents", 0L),
             theme = theme,
             onboarded = prefs.getBoolean("onboarded", false)
         )
@@ -44,27 +46,39 @@ class LedgerRepository(context: Context) {
             .putString("name", settings.name)
             .putString("currency", settings.currency)
             .putLong("monthly_budget_cents", settings.monthlyBudgetCents)
+            .putString("budget_style", settings.budgetStyle.name)
+            .putLong("monthly_income_cents", settings.monthlyIncomeCents)
             .putString("theme", settings.theme.name)
             .putBoolean("onboarded", settings.onboarded)
             .apply()
     }
 
     fun seedSampleData(force: Boolean = false, today: LocalDate = LocalDate.now()) {
+        if (!SampleData.available) return
         if (!force && db.readTransactions().isNotEmpty()) return
         if (force) {
             db.clearTransactions()
             db.clearBudgets()
         }
-        db.insertTransactions(SampleData.transactions(today))
-        db.insertBudgets(SampleData.budgets)
+        val currency = loadSettings().currency
+        val scale = SampleData.scaleFor(currency)
+        db.insertTransactions(SampleData.transactions(today, scale))
+        db.insertBudgets(SampleData.budgets(scale))
         val settings = loadSettings()
         if (settings.monthlyBudgetCents <= 0L) {
-            saveSettings(settings.copy(monthlyBudgetCents = SampleData.MONTHLY_BUDGET_CENTS))
+            saveSettings(
+                settings.copy(monthlyBudgetCents = SampleData.defaultMonthlyBudgetCents(currency))
+            )
         }
     }
 
     fun clearAllData() {
         db.clearTransactions()
         db.clearBudgets()
+    }
+
+    private companion object {
+        /** New installs start in rupiah; existing installs keep whatever is stored. */
+        const val DEFAULT_CURRENCY = "IDR"
     }
 }

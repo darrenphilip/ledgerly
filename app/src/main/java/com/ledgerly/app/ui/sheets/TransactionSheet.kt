@@ -93,7 +93,7 @@ fun TransactionSheet(
 
     var type by remember { mutableStateOf(startingType) }
     var amountText by remember {
-        mutableStateOf(editing?.let { Money.plain(it.amountCents) } ?: "")
+        mutableStateOf(editing?.let { Money.plain(it.amountCents, currency) } ?: "")
     }
     var categoryKey by remember {
         mutableStateOf(editing?.categoryKey ?: Categories.defaultForType(startingType).key)
@@ -103,7 +103,7 @@ fun TransactionSheet(
     var showDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    val amountCents = Money.parseToCents(amountText)
+    val amountCents = Money.parseToCents(amountText, currency)
     val canSave = amountCents != null && categoryKey.isNotBlank()
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -185,7 +185,7 @@ fun TransactionSheet(
                 },
                 placeholder = {
                     Text(
-                        text = "0.00",
+                        text = Money.placeholder(currency),
                         style = MaterialTheme.typography.displaySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -197,9 +197,13 @@ fun TransactionSheet(
                     imeAction = ImeAction.Next
                 ),
                 isError = amountText.isNotEmpty() && amountCents == null,
-                supportingText = if (amountText.isNotEmpty() && amountCents == null) {
-                    { Text("Enter an amount greater than zero") }
-                } else null
+                supportingText = when {
+                    amountText.isNotEmpty() && amountCents == null ->
+                        { { Text("Enter an amount greater than zero") } }
+                    amountCents != null ->
+                        { { Text("= ${Money.format(amountCents, currency)}") } }
+                    else -> null
+                }
             )
 
             Spacer(Modifier.height(14.dp))

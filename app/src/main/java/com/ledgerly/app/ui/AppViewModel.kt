@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.Budget
+import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.LedgerRepository
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
@@ -114,6 +115,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         saveSettings(_settings.value.copy(monthlyBudgetCents = cents))
 
     fun setCurrency(code: String) = saveSettings(_settings.value.copy(currency = code))
+
+    fun setBudgetStyle(style: BudgetStyle) =
+        saveSettings(_settings.value.copy(budgetStyle = style))
+
+    fun setMonthlyIncome(cents: Long) =
+        saveSettings(_settings.value.copy(monthlyIncomeCents = cents))
 
     fun setName(name: String) = saveSettings(_settings.value.copy(name = name.trim()))
 

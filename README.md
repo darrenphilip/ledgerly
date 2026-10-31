@@ -37,6 +37,10 @@ lives in a local SQLite database on the device.
 - Overall monthly budget with progress and remaining amount.
 - Per-category monthly limits with colour-coded progress
   (healthy → warning at 80% → over).
+- **50:30:20 mode** (opt-in in Settings): enter your monthly income and Ledgerly splits it
+  into 50% needs / 30% wants / 20% savings, with a plan card showing each bucket's target,
+  spending, remaining and a plain-language verdict. Savings is a category, so logging a
+  transfer as a Savings expense counts toward the 20%.
 - "Outside category budgets" summary so nothing hides.
 - Add/edit/remove budgets from a bottom sheet.
 
@@ -49,8 +53,11 @@ lives in a local SQLite database on the device.
 **Everywhere**
 - Add/edit sheet with a big amount pad, emoji category grid, note, and date picker
   (Today / Yesterday / any date).
-- 12 expense categories + 4 income categories, each with its own colour and emoji.
-- Light / dark / system theme, 18 currencies, CSV export (share sheet), sample data.
+- 13 expense categories + 4 income categories, each with its own colour and emoji.
+- Light / dark / system theme, 19 currencies including **Indonesian Rupiah**, CSV export
+  (share sheet), sample data (debug builds only).
+- Rupiah-aware money entry: `50000`, `50.000` and `50,000` all mean Rp 50.000, with a live
+  preview of the amount that will be saved. IDR is the default for new installs.
 - Onboarding that sets your name, currency and monthly budget.
 
 ## Install
@@ -68,7 +75,7 @@ Requires **Android 8.0+** (minSdk 26).
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk   # SDK 35 + build-tools 35.0.0
-./gradlew :app:testDebugUnitTest           # 21 unit tests
+./gradlew :app:testDebugUnitTest           # 36 unit tests
 ./gradlew :app:assembleDebug               # debug APK
 ./gradlew :app:assembleRelease             # release APK
 ```
@@ -124,7 +131,15 @@ app/src/main/java/com/ledgerly/app/
 ```
 
 - Money is stored as **integer cents** to avoid floating-point drift.
-- All statistics are pure functions in `BudgetMath` and covered by unit tests.
+- Money formatting and parsing are currency-aware: `Money.format` renders `Rp 1.234.567` for
+  IDR and keeps the existing `$1,234.56` output for two-decimal currencies; `Money.parseToCents`
+  takes the currency so rupiah grouping is read correctly.
+- All statistics are pure functions in `BudgetMath` and covered by unit tests. The 50/30/20
+  split (`splitIncome`) rounds down and lets savings take the remainder, so the three parts
+  always sum back to the income.
+- Category→bucket mapping lives on `Category.bucket`; there is no per-category override UI yet.
+- Budget style (`SIMPLE` / `RULE_50_30_20`) and monthly income are stored in the existing
+  SharedPreferences keyspace — no database migration.
 - State is exposed from the ViewModel as `StateFlow`; writes go to `Dispatchers.IO`.
 - No third-party runtime dependencies beyond AndroidX/Compose — no ads, no analytics,
   no network permission at all.
@@ -137,8 +152,9 @@ signed release APK attached.
 
 ## Tests
 
-21 JVM unit tests cover money parsing/formatting (including zero-decimal currencies like JPY)
-and the budgeting math (summaries, slices, budget status, projections, trends).
+21 JVM unit tests cover money parsing/formatting (including zero-decimal currencies like JPY
+and whole-unit currencies like IDR) and the budgeting math (summaries, slices, budget status,
+projections, trends, the 50/30/20 split and bucket aggregation).
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -149,12 +165,23 @@ and the budgeting math (summaries, slices, budget status, projections, trends).
 Ledgerly requests **no permissions** — not even internet access. Your transactions never
 leave the device unless you explicitly export them.
 
+## Demo data
+
+The four months of sample transactions and the suggested monthly budget are **debug-only**.
+`SampleData.available` is `BuildConfig.DEBUG`, and release builds ship with an empty ledger:
+no sample-data switch in onboarding, no "Reset with sample data" row in Settings, no
+"Load sample data" link on Home, and no prefilled budget figure. A release install starts at
+zero and only ever holds what you enter.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
 ## What I'd build next
 
+- Per-category bucket overrides (e.g. move Travel from wants to needs)
+- "Apply plan to category budgets" — seed per-category limits from the 50:30:20 split
+- Per-bucket pace warnings on Home
 - Recurring transactions and upcoming-bill reminders
 - Home-screen widget with the "left to spend" figure
 - Multiple accounts/wallets

@@ -17,7 +17,7 @@ Target: **minSdk 26, targetSdk/compileSdk 35, JDK 17**.
 ## 2. Commands
 
 ```bash
-./gradlew :app:testDebugUnitTest    # 21 unit tests — must stay green
+./gradlew :app:testDebugUnitTest    # 36 unit tests — must stay green
 ./gradlew :app:assembleDebug        # debug APK  (com.ledgerly.app.debug)
 ./gradlew :app:assembleRelease      # release APK (signed if keys exist, else unsigned)
 ./gradlew lintVitalRelease          # runs automatically as part of assembleRelease
@@ -48,11 +48,20 @@ app/src/test/java/…        JVM unit tests for pure logic
 **Money & data**
 - Amounts are `Long` **cents**. Never `Float`/`Double` for money.
 - Parsing/formatting lives in `util/Money.kt`; formatting is currency-aware
-  (including zero-decimal currencies like JPY).
+  (including zero-decimal currencies like JPY and whole-unit currencies like IDR).
+  `parseToCents` takes the currency code, because rupiah grouping (`50.000`) and
+  decimal grouping (`1,234.56`) mean different things.
+- The 50/30/20 split is `BudgetMath.splitIncome`; bucket aggregation is
+  `BudgetMath.bucketSpend` / `BudgetMath.plan`. Category→bucket mapping is data
+  (`Category.bucket`), not a hard-coded list in the UI.
 - All aggregation/insight logic is a **pure function** in `util/BudgetMath.kt`.
   If you add a stat, add a unit test for it.
 - Persistence stays on-device. Adding `INTERNET` or any new permission is a design
   decision that must be called out explicitly.
+- Demo data is **debug-only**. Everything in `data/SampleData.kt` is reachable only when
+  `SampleData.available` (`BuildConfig.DEBUG`) is true. Release builds must start empty:
+  no seeded transactions, no seeded budgets, no prefilled budget field. If you add a new
+  demo-data entry point, gate it on the same flag and hide its UI.
 
 **Threading**
 - DB and file I/O on `Dispatchers.IO`; UI state via `StateFlow` from `AppViewModel`.

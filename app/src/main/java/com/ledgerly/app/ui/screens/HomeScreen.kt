@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.components.CategoryBadge
@@ -71,6 +72,8 @@ fun HomeScreen(
     stats: MonthStats,
     budgets: Map<String, Long>,
     monthlyBudgetCents: Long,
+    monthlyIncomeCents: Long,
+    budgetStyle: BudgetStyle,
     currency: String,
     name: String,
     isCurrentMonth: Boolean,
@@ -80,13 +83,20 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onSeeAll: () -> Unit,
     onAddTransaction: () -> Unit,
-    onLoadSample: () -> Unit,
+    onLoadSample: (() -> Unit)?,
     onOpenBudgets: () -> Unit,
     onOpenInsights: () -> Unit,
     onSetBudget: () -> Unit,
     onTransactionClick: (Transaction) -> Unit
 ) {
     val statuses = remember(budgets, stats) { BudgetMath.budgetStatuses(budgets, stats) }
+    val ruleMode = budgetStyle == BudgetStyle.RULE_50_30_20
+    // In rule mode the month's ceiling is income (typed, or logged this month).
+    val heroLimitCents = if (ruleMode) {
+        BudgetMath.effectiveIncome(monthlyIncomeCents, stats)
+    } else {
+        monthlyBudgetCents
+    }
     val alerts = remember(statuses) { statuses.filter { it.isOver || it.isWarning } }
     val slices = remember(stats) { BudgetMath.categorySlices(stats) }
     val recent = remember(transactions, month) {
@@ -156,9 +166,10 @@ fun HomeScreen(
             HeroCard(
                 stats = stats,
                 month = month,
-                monthlyBudgetCents = monthlyBudgetCents,
+                monthlyBudgetCents = heroLimitCents,
                 currency = currency,
                 isCurrentMonth = isCurrentMonth,
+                ruleMode = ruleMode,
                 onSetBudget = onSetBudget
             )
         }
@@ -212,10 +223,14 @@ fun HomeScreen(
                     EmptyState(
                         emoji = "👋",
                         title = "Your money, minus the mystery",
-                        message = "Add your first transaction, or load a few months of sample data to explore Ledgerly.",
+                        message = if (onLoadSample != null) {
+                            "Add your first transaction, or load a few months of sample data to explore Ledgerly."
+                        } else {
+                            "Add your first transaction and Ledgerly will start tracking where your money goes."
+                        },
                         actionLabel = "Add transaction",
                         onAction = onAddTransaction,
-                        secondaryLabel = "Load sample data",
+                        secondaryLabel = if (onLoadSample != null) "Load sample data" else null,
                         onSecondary = onLoadSample
                     )
                 }
@@ -269,6 +284,7 @@ private fun HeroCard(
     monthlyBudgetCents: Long,
     currency: String,
     isCurrentMonth: Boolean,
+    ruleMode: Boolean,
     onSetBudget: () -> Unit
 ) {
     val hasBudget = monthlyBudgetCents > 0L
@@ -364,7 +380,11 @@ private fun HeroCard(
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Set a monthly budget to see what's safe to spend.",
+                        text = if (ruleMode) {
+                            "Set your monthly income to see what's safe to spend."
+                        } else {
+                            "Set a monthly budget to see what's safe to spend."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.weight(1f)

@@ -14,9 +14,15 @@ data class CurrencyOption(
 
 object Currencies {
     private val codes = listOf(
-        "USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "SGD",
+        "IDR", "USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "SGD",
         "BRL", "ZAR", "NGN", "KES", "AED", "CHF", "SEK", "MXN", "NZD", "PHP"
     )
+
+    /**
+     * Symbols we pin ourselves: rupiah is written "Rp" and the platform symbol for
+     * IDR is not reliable across Android versions and ICU data sets.
+     */
+    private val symbolOverrides = mapOf("IDR" to "Rp")
 
     val all: List<CurrencyOption> = codes.mapNotNull { code ->
         runCatching {
@@ -24,7 +30,7 @@ object Currencies {
             CurrencyOption(
                 code = code,
                 name = currency.getDisplayName(Locale.ENGLISH),
-                symbol = currency.symbol
+                symbol = symbolOverrides[code] ?: currency.symbol
             )
         }.getOrNull()
     }
@@ -37,14 +43,41 @@ object Currencies {
 
 object Money {
 
-    /** Parses user input such as "12.50", "1,200", "12,50" into cents. */
-    fun parseToCents(raw: String): Long? {
+    /**
+     * Currencies written in whole major units, with dot grouping and a comma decimal:
+     * `Rp 1.234.567`. Amounts are still stored as cents; only display and parsing differ.
+     */
+    private val wholeUnitDisplay = setOf("IDR")
+
+    /** Largest amount a user can enter, in major units. */
+    private const val MAX_MAJOR_DEFAULT = 999_999_999L
+    private const val MAX_MAJOR_WHOLE_UNIT = 9_999_999_999L
+
+    fun isWholeUnit(currencyCode: String): Boolean = currencyCode in wholeUnitDisplay
+
+    /**
+     * Parses user input into cents. With a currency code the separators are interpreted the
+     * way that currency is written: "50.000", "50,000" and "50000" all mean Rp 50.000,
+     * while "12.50" stays twelve dollars fifty.
+     */
+    fun parseToCents(raw: String, currencyCode: String = "USD"): Long? {
         var s = raw.trim().filter { it.isDigit() || it == '.' || it == ',' || it == '-' }
         if (s.isEmpty()) return null
 
+        s = if (isWholeUnit(currencyCode)) normalizeWholeUnit(s) else normalizeDecimal(s)
+
+        val value = s.toBigDecimalOrNull() ?: return null
+        if (value <= BigDecimal.ZERO) return null
+        val maxMajor = if (isWholeUnit(currencyCode)) MAX_MAJOR_WHOLE_UNIT else MAX_MAJOR_DEFAULT
+        if (value > BigDecimal.valueOf(maxMajor)) return null
+        return value.setScale(2, RoundingMode.HALF_UP).movePointRight(2).toLong()
+    }
+
+    /** `1,234.56` and `12,50` styles: the last separator wins when it looks decimal. */
+    private fun normalizeDecimal(s: String): String {
         val lastDot = s.lastIndexOf('.')
         val lastComma = s.lastIndexOf(',')
-        s = when {
+        return when {
             lastDot >= 0 && lastComma >= 0 ->
                 if (lastDot > lastComma) s.replace(",", "")
                 else s.replace(".", "").replace(',', '.')
@@ -54,14 +87,39 @@ object Money {
                 else s.replace(",", "")
             else -> s
         }
+    }
 
-        val value = s.toBigDecimalOrNull() ?: return null
-        if (value <= BigDecimal.ZERO) return null
-        if (value > BigDecimal("999999999")) return null
-        return value.setScale(2, RoundingMode.HALF_UP).movePointRight(2).toLong()
+    /**
+     * `Rp` style: separators group thousands. A trailing group of one or two digits is read
+     * as a decimal fraction so "50,5" still means fifty and a half rupiah.
+     */
+    private fun normalizeWholeUnit(s: String): String {
+        val lastSep = maxOf(s.lastIndexOf('.'), s.lastIndexOf(','))
+        if (lastSep < 0) return s
+        val tail = s.substring(lastSep + 1)
+        val looksDecimal = tail.length in 1..2 && tail.all { it.isDigit() }
+        return if (looksDecimal) {
+            s.substring(0, lastSep).filter { it.isDigit() } + "." + tail
+        } else {
+            s.filter { it.isDigit() }
+        }
     }
 
     fun format(cents: Long, currencyCode: String, showPlus: Boolean = false): String {
+        val magnitude = kotlin.math.abs(cents)
+        val body = if (isWholeUnit(currencyCode)) {
+            "${Currencies.symbolOf(currencyCode)} ${groupThousands(majorWholeUnits(magnitude))}"
+        } else {
+            localeFormat(magnitude, currencyCode)
+        }
+        return when {
+            showPlus && cents > 0 -> "+$body"
+            cents < 0 -> "-$body"
+            else -> body
+        }
+    }
+
+    private fun localeFormat(magnitude: Long, currencyCode: String): String {
         val currency = runCatching { Currency.getInstance(currencyCode) }
             .getOrDefault(Currency.getInstance("USD"))
         val formatter = NumberFormat.getCurrencyInstance(Locale.US).apply {
@@ -70,23 +128,31 @@ object Money {
             minimumFractionDigits = digits
             maximumFractionDigits = digits
         }
-        val major = cents / 100.0
-        val body = formatter.format(kotlin.math.abs(major))
-        return when {
-            showPlus && cents > 0 -> "+$body"
-            cents < 0 -> "-$body"
-            else -> body
-        }
+        return formatter.format(magnitude / 100.0)
     }
+
+    private fun majorWholeUnits(cents: Long): String =
+        BigDecimal(cents).movePointLeft(2).setScale(0, RoundingMode.HALF_UP).toBigInteger().toString()
+
+    private fun groupThousands(digits: String): String =
+        digits.reversed().chunked(3).joinToString(".").reversed()
 
     /** Formats a signed amount using the transaction type. */
     fun signed(cents: Long, currencyCode: String, isIncome: Boolean): String =
         if (isIncome) "+${format(cents, currencyCode)}" else "-${format(cents, currencyCode)}"
 
-    /** Short form for chart labels, e.g. "$1.2k". */
+    /** Short form for chart labels, e.g. "$1.2k" or "Rp 12rb". */
     fun compact(cents: Long, currencyCode: String): String {
         val symbol = Currencies.symbolOf(currencyCode)
         val major = cents / 100.0
+        if (isWholeUnit(currencyCode)) {
+            return when {
+                major >= 1_000_000_000 -> "$symbol ${trimZero(major / 1_000_000_000)}M"
+                major >= 1_000_000 -> "$symbol ${trimZero(major / 1_000_000)}jt"
+                major >= 1_000 -> "$symbol ${trimZero(major / 1_000)}rb"
+                else -> "$symbol ${trimZero(major)}"
+            }
+        }
         return when {
             major >= 1_000_000 -> String.format(Locale.US, "%s%.1fM", symbol, major / 1_000_000)
             major >= 1_000 -> String.format(Locale.US, "%s%.1fk", symbol, major / 1_000)
@@ -95,6 +161,20 @@ object Money {
         }
     }
 
+    private fun trimZero(value: Double): String {
+        val rounded = (value * 10).toLong() / 10.0
+        return if (rounded % 1.0 == 0.0) rounded.toLong().toString() else rounded.toString()
+    }
+
     fun plain(cents: Long): String =
         BigDecimal(cents).movePointLeft(2).setScale(2, RoundingMode.HALF_UP).toPlainString()
+
+    /** Prefill form for an amount field: "1234.56" for decimals, "50000" for whole units. */
+    fun plain(cents: Long, currencyCode: String): String {
+        if (!isWholeUnit(currencyCode)) return plain(cents)
+        return BigDecimal(cents).movePointLeft(2).stripTrailingZeros().toPlainString()
+    }
+
+    /** Placeholder shown in an empty amount field. */
+    fun placeholder(currencyCode: String): String = if (isWholeUnit(currencyCode)) "0" else "0.00"
 }

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.SettingsBrightness
 import androidx.compose.material3.AlertDialog
@@ -70,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ledgerly.app.BuildConfig
 import com.ledgerly.app.data.AppSettings
+import com.ledgerly.app.data.BudgetStyle
+import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.components.LedgerCard
@@ -92,6 +95,8 @@ fun SettingsScreen(
     onNameChange: (String) -> Unit,
     onCurrencyChange: (String) -> Unit,
     onMonthlyBudgetChange: (Long) -> Unit,
+    onIncomeChange: (Long) -> Unit,
+    onBudgetStyleChange: (BudgetStyle) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
     onLoadSampleData: () -> Unit,
     onClearAllData: () -> Unit
@@ -99,6 +104,8 @@ fun SettingsScreen(
     var showNameDialog by remember { mutableStateOf(false) }
     var showCurrencyDialog by remember { mutableStateOf(false) }
     var showBudgetDialog by remember { mutableStateOf(false) }
+    var showIncomeDialog by remember { mutableStateOf(false) }
+    var showStyleDialog by remember { mutableStateOf(false) }
     var showSampleConfirm by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -217,6 +224,30 @@ fun SettingsScreen(
                     },
                     onClick = { showBudgetDialog = true }
                 )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.PieChart,
+                    title = "Budget style",
+                    subtitle = if (settings.budgetStyle == BudgetStyle.RULE_50_30_20) {
+                        "50:30:20 \u00b7 needs, wants, savings"
+                    } else {
+                        "Simple \u00b7 one limit per category"
+                    },
+                    onClick = { showStyleDialog = true }
+                )
+                if (settings.budgetStyle == BudgetStyle.RULE_50_30_20) {
+                    RowDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsRow(
+                        icon = Icons.Rounded.Payments,
+                        title = "Monthly income",
+                        subtitle = if (settings.monthlyIncomeCents > 0L) {
+                            Money.format(settings.monthlyIncomeCents, settings.currency)
+                        } else {
+                            "Not set \u00b7 using income logged this month"
+                        },
+                        onClick = { showIncomeDialog = true }
+                    )
+                }
             }
 
             SectionLabel("Appearance")
@@ -257,13 +288,15 @@ fun SettingsScreen(
                     onClick = exportCsv,
                     enabled = transactions.isNotEmpty()
                 )
-                RowDivider(Modifier.padding(horizontal = 16.dp))
-                SettingsRow(
-                    icon = Icons.Rounded.RestartAlt,
-                    title = "Reset with sample data",
-                    subtitle = "Replace everything with four months of demo data",
-                    onClick = { showSampleConfirm = true }
-                )
+                if (SampleData.available) {
+                    RowDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsRow(
+                        icon = Icons.Rounded.RestartAlt,
+                        title = "Reset with sample data",
+                        subtitle = "Replace everything with four months of demo data",
+                        onClick = { showSampleConfirm = true }
+                    )
+                }
                 RowDivider(Modifier.padding(horizontal = 16.dp))
                 SettingsRow(
                     icon = Icons.Rounded.Delete,
@@ -402,6 +435,54 @@ fun SettingsScreen(
         )
     }
 
+    if (showIncomeDialog) {
+        BudgetAmountDialog(
+            title = "Monthly income",
+            description = "Your take-home pay each month. The 50:30:20 rule splits it into 50% needs, 30% wants and 20% savings.",
+            initialCents = settings.monthlyIncomeCents,
+            currency = settings.currency,
+            removeLabel = "Remove monthly income",
+            onDismiss = { showIncomeDialog = false },
+            onSave = { cents ->
+                onIncomeChange(cents)
+                showIncomeDialog = false
+            }
+        )
+    }
+
+    if (showStyleDialog) {
+        AlertDialog(
+            onDismissRequest = { showStyleDialog = false },
+            title = { Text("Budget style") },
+            text = {
+                Column {
+                    BudgetStyleOption(
+                        title = "Simple",
+                        description = "One limit per category, plus an optional monthly total.",
+                        selected = settings.budgetStyle == BudgetStyle.SIMPLE,
+                        onClick = {
+                            onBudgetStyleChange(BudgetStyle.SIMPLE)
+                            showStyleDialog = false
+                        }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    BudgetStyleOption(
+                        title = "50:30:20",
+                        description = "Split income into 50% needs, 30% wants and 20% savings.",
+                        selected = settings.budgetStyle == BudgetStyle.RULE_50_30_20,
+                        onClick = {
+                            onBudgetStyleChange(BudgetStyle.RULE_50_30_20)
+                            showStyleDialog = false
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showStyleDialog = false }) { Text("Done") }
+            }
+        )
+    }
+
     if (showSampleConfirm) {
         AlertDialog(
             onDismissRequest = { showSampleConfirm = false },
@@ -440,6 +521,37 @@ fun SettingsScreen(
                 TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun BudgetStyleOption(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Spacer(Modifier.width(6.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

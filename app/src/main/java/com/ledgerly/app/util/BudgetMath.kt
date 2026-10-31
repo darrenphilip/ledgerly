@@ -1,5 +1,7 @@
 package com.ledgerly.app.util
 
+import com.ledgerly.app.data.Bucket
+import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.data.TxType
 import java.time.LocalDate
@@ -41,6 +43,44 @@ data class CategorySlice(
     val amountCents: Long,
     val share: Float
 )
+
+/** A 50/30/20 income split. The three parts always sum back to the income. */
+data class IncomeSplit(
+    val needsCents: Long,
+    val wantsCents: Long,
+    val savingsCents: Long
+) {
+    val totalCents: Long get() = needsCents + wantsCents + savingsCents
+
+    fun forBucket(bucket: Bucket): Long = when (bucket) {
+        Bucket.NEEDS -> needsCents
+        Bucket.WANTS -> wantsCents
+        Bucket.SAVINGS -> savingsCents
+    }
+}
+
+data class BucketTarget(
+    val bucket: Bucket,
+    val targetCents: Long,
+    val spentCents: Long
+) {
+    val remainingCents: Long get() = targetCents - spentCents
+    val isOver: Boolean get() = spentCents > targetCents
+    val rawProgress: Float
+        get() = if (targetCents <= 0L) 0f else spentCents.toFloat() / targetCents
+    val progress: Float get() = rawProgress.coerceIn(0f, 1f)
+}
+
+data class BudgetPlan(
+    val incomeCents: Long,
+    val buckets: List<BucketTarget>
+) {
+    val totalTargetCents: Long get() = buckets.sumOf { it.targetCents }
+    val totalSpentCents: Long get() = buckets.sumOf { it.spentCents }
+    val overCents: Long get() = buckets.filter { it.isOver }.sumOf { -it.remainingCents }
+    val hasIncome: Boolean get() = incomeCents > 0L
+    val isEmpty: Boolean get() = totalSpentCents == 0L
+}
 
 object BudgetMath {
 
@@ -166,4 +206,59 @@ object BudgetMath {
                 it.categoryKey == "subscriptions" &&
                 YearMonth.from(it.date) == month
         }.sumOf { it.amountCents }
+
+    /**
+     * Splits monthly income into needs/wants/savings. Each part is the exact share rounded
+     * down, and savings takes the remainder, so the parts always add up to the income.
+     */
+    fun splitIncome(incomeCents: Long): IncomeSplit {
+        if (incomeCents <= 0L) return IncomeSplit(0L, 0L, 0L)
+        val needs = incomeCents * Bucket.NEEDS.share / 100
+        val wants = incomeCents * Bucket.WANTS.share / 100
+        return IncomeSplit(needs, wants, incomeCents - needs - wants)
+    }
+
+    /** Month spending grouped by 50:30:20 bucket. Every bucket is present, zero included. */
+    fun bucketSpend(stats: MonthStats): Map<Bucket, Long> {
+        val totals = Bucket.entries.associateWith { 0L }.toMutableMap()
+        for ((categoryKey, amount) in stats.byCategory) {
+            val bucket = Categories.bucketOf(categoryKey)
+            totals[bucket] = (totals[bucket] ?: 0L) + amount
+        }
+        return totals
+    }
+
+    fun plan(stats: MonthStats, incomeCents: Long): BudgetPlan {
+        val split = splitIncome(incomeCents)
+        val spend = bucketSpend(stats)
+        return BudgetPlan(
+            incomeCents = incomeCents,
+            buckets = Bucket.entries.map { bucket ->
+                BucketTarget(
+                    bucket = bucket,
+                    targetCents = split.forBucket(bucket),
+                    spentCents = spend[bucket] ?: 0L
+                )
+            }
+        )
+    }
+
+    /** Income typed in settings wins; otherwise the income logged this month is the baseline. */
+    fun effectiveIncome(settingsIncomeCents: Long, stats: MonthStats): Long =
+        if (settingsIncomeCents > 0L) settingsIncomeCents else stats.incomeCents
+
+    /** One-line verdict for a bucket row, e.g. "Rp 120.000 left". */
+    fun bucketVerdict(target: BucketTarget, currency: String): String = when {
+        target.targetCents <= 0L -> "No target"
+        target.isOver -> "${Money.format(-target.remainingCents, currency)} over"
+        target.spentCents == 0L -> "Nothing yet"
+        else -> "${Money.format(target.remainingCents, currency)} left"
+    }
+
+    fun planVerdict(plan: BudgetPlan, currency: String): String = when {
+        !plan.hasIncome -> "Set your monthly income"
+        plan.isEmpty -> "Nothing spent yet"
+        plan.overCents > 0L -> "${Money.format(plan.overCents, currency)} over across buckets"
+        else -> "On track"
+    }
 }

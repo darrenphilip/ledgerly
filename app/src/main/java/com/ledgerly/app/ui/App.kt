@@ -45,7 +45,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ledgerly.app.data.AppSettings
+import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.screens.ActivityScreen
 import com.ledgerly.app.ui.screens.BudgetsScreen
@@ -133,11 +135,13 @@ private fun MainScaffold(
     var showBudgetSheet by remember { mutableStateOf(false) }
     var budgetSheetCategory by remember { mutableStateOf<String?>(null) }
     var showMonthlyBudgetDialog by remember { mutableStateOf(false) }
+    var showIncomeDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     val currency = settings.currency
+    val ruleMode = settings.budgetStyle == BudgetStyle.RULE_50_30_20
     val stats = remember(transactions, month) { BudgetMath.summarize(transactions, month) }
     val now = remember { YearMonth.now() }
     val isCurrentMonth = month == now
@@ -174,6 +178,8 @@ private fun MainScaffold(
             onNameChange = viewModel::setName,
             onCurrencyChange = viewModel::setCurrency,
             onMonthlyBudgetChange = viewModel::setMonthlyBudget,
+            onIncomeChange = viewModel::setMonthlyIncome,
+            onBudgetStyleChange = viewModel::setBudgetStyle,
             onThemeChange = viewModel::setTheme,
             onLoadSampleData = viewModel::resetWithSampleData,
             onClearAllData = viewModel::clearAllData
@@ -249,6 +255,8 @@ private fun MainScaffold(
                     stats = stats,
                     budgets = budgets,
                     monthlyBudgetCents = settings.monthlyBudgetCents,
+                    monthlyIncomeCents = settings.monthlyIncomeCents,
+                    budgetStyle = settings.budgetStyle,
                     currency = currency,
                     name = settings.name,
                     isCurrentMonth = isCurrentMonth,
@@ -258,10 +266,16 @@ private fun MainScaffold(
                     onSettings = { showSettings = true },
                     onSeeAll = { selectedTab = 1 },
                     onAddTransaction = { openEditor(null) },
-                    onLoadSample = viewModel::loadSampleDataIfEmpty,
+                    onLoadSample = if (SampleData.available) {
+                        viewModel::loadSampleDataIfEmpty
+                    } else {
+                        null
+                    },
                     onOpenBudgets = { selectedTab = 2 },
                     onOpenInsights = { selectedTab = 3 },
-                    onSetBudget = { showMonthlyBudgetDialog = true },
+                    onSetBudget = {
+                        if (ruleMode) showIncomeDialog = true else showMonthlyBudgetDialog = true
+                    },
                     onTransactionClick = { openEditor(it) }
                 )
 
@@ -281,6 +295,8 @@ private fun MainScaffold(
                     stats = stats,
                     budgets = budgets,
                     monthlyBudgetCents = settings.monthlyBudgetCents,
+                    monthlyIncomeCents = settings.monthlyIncomeCents,
+                    budgetStyle = settings.budgetStyle,
                     currency = currency,
                     month = month,
                     canGoNext = canGoNext,
@@ -294,7 +310,8 @@ private fun MainScaffold(
                         budgetSheetCategory = key
                         showBudgetSheet = true
                     },
-                    onSetMonthlyBudget = { showMonthlyBudgetDialog = true }
+                    onSetMonthlyBudget = { showMonthlyBudgetDialog = true },
+                    onSetIncome = { showIncomeDialog = true }
                 )
 
                 3 -> InsightsScreen(
@@ -366,6 +383,21 @@ private fun MainScaffold(
             onSave = { cents ->
                 viewModel.setMonthlyBudget(cents)
                 showMonthlyBudgetDialog = false
+            }
+        )
+    }
+
+    if (showIncomeDialog) {
+        BudgetAmountDialog(
+            title = "Monthly income",
+            description = "Your take-home pay each month. The 50:30:20 rule splits it into 50% needs, 30% wants and 20% savings.",
+            initialCents = settings.monthlyIncomeCents,
+            currency = currency,
+            removeLabel = "Remove monthly income",
+            onDismiss = { showIncomeDialog = false },
+            onSave = { cents ->
+                viewModel.setMonthlyIncome(cents)
+                showIncomeDialog = false
             }
         )
     }

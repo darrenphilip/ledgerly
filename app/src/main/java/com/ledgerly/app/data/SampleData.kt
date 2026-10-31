@@ -1,5 +1,6 @@
 package com.ledgerly.app.data
 
+import com.ledgerly.app.BuildConfig
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -8,24 +9,39 @@ import kotlin.random.Random
 /**
  * Deterministic, realistic demo data. Dates are generated relative to today so
  * the app always has something interesting to show on first launch.
+ *
+ * Debug builds only. Release builds ship with an empty ledger — no demo transactions,
+ * no demo budgets, and no suggested budget prefill.
  */
 object SampleData {
 
+    /** False in release builds, so nothing here can reach a production install. */
+    val available: Boolean = BuildConfig.DEBUG
+
     const val MONTHLY_BUDGET_CENTS: Long = 320_000L
 
-    val budgets: List<Budget> = listOf(
-        Budget("home", 120_000L),
-        Budget("food", 50_000L),
-        Budget("groceries", 40_000L),
-        Budget("bills", 25_000L),
-        Budget("shopping", 20_000L),
-        Budget("travel", 15_000L),
-        Budget("transport", 12_000L),
-        Budget("entertainment", 10_000L),
-        Budget("health", 8_000L),
-        Budget("subscriptions", 5_000L),
-        Budget("education", 4_000L),
-        Budget("other", 4_000L)
+    /**
+     * Demo amounts are shaped like a two-decimal currency. Rupiah needs bigger numbers to
+     * look like real money, so everything is scaled up for IDR.
+     */
+    fun scaleFor(currency: String): Long = if (currency == "IDR") 1_000L else 1L
+
+    fun defaultMonthlyBudgetCents(currency: String): Long =
+        if (!available) 0L else MONTHLY_BUDGET_CENTS * scaleFor(currency)
+
+    fun budgets(scale: Long = 1L): List<Budget> = listOf(
+        Budget("home", 120_000L * scale),
+        Budget("food", 50_000L * scale),
+        Budget("groceries", 40_000L * scale),
+        Budget("bills", 25_000L * scale),
+        Budget("shopping", 20_000L * scale),
+        Budget("travel", 15_000L * scale),
+        Budget("transport", 12_000L * scale),
+        Budget("entertainment", 10_000L * scale),
+        Budget("health", 8_000L * scale),
+        Budget("subscriptions", 5_000L * scale),
+        Budget("education", 4_000L * scale),
+        Budget("other", 4_000L * scale)
     )
 
     private val foodNotes = listOf(
@@ -48,7 +64,7 @@ object SampleData {
         "Movie tickets", "Concert tickets", "Museum entry", "Video game", "Bowling night"
     )
 
-    fun transactions(today: LocalDate = LocalDate.now()): List<Transaction> {
+    fun transactions(today: LocalDate = LocalDate.now(), scale: Long = 1L): List<Transaction> {
         val random = Random(73)
         val currentMonth = YearMonth.from(today)
         val result = mutableListOf<Transaction>()
@@ -63,7 +79,7 @@ object SampleData {
                 val hour = 8 + random.nextInt(13)
                 result += Transaction(
                     type = type,
-                    amountCents = cents,
+                    amountCents = cents * scale,
                     categoryKey = category,
                     note = note,
                     date = date,
@@ -80,6 +96,7 @@ object SampleData {
             add(3, TxType.EXPENSE, "subscriptions", 1_599L, "Netflix")
             add(9, TxType.EXPENSE, "subscriptions", 1_099L, "Spotify")
             add(12, TxType.EXPENSE, "subscriptions", 299L, "iCloud+")
+            add(4, TxType.EXPENSE, "savings", 70_000L, "Transfer to savings")
 
             if (offset % 2 == 0) {
                 add(18, TxType.EXPENSE, "health", 4_500L + random.nextInt(2_000), "Pharmacy")
