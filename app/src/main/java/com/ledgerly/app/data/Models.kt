@@ -50,8 +50,32 @@ data class Transaction(
 
 data class Budget(
     val categoryKey: String,
-    val limitCents: Long
+    val limitCents: Long,
+    /** ISO month (`2026-10`), or empty for the default that applies to every month. */
+    val month: String = ""
+) {
+    val isOverride: Boolean get() = month.isNotEmpty()
+}
+
+data class Recurring(
+    val id: Long = 0L,
+    val type: TxType = TxType.EXPENSE,
+    val amountCents: Long,
+    val categoryKey: String,
+    val note: String,
+    val cadence: Cadence = Cadence.MONTHLY,
+    val nextDue: LocalDate,
+    val active: Boolean = true
 )
+
+enum class Cadence(val label: String) {
+    WEEKLY("Every week"),
+    MONTHLY("Every month");
+
+    companion object {
+        fun from(raw: String?): Cadence = entries.firstOrNull { it.name == raw } ?: MONTHLY
+    }
+}
 
 data class AppSettings(
     val name: String = "",
@@ -60,7 +84,9 @@ data class AppSettings(
     val budgetStyle: BudgetStyle = BudgetStyle.SIMPLE,
     val monthlyIncomeCents: Long = 0L,
     val theme: ThemeMode = ThemeMode.SYSTEM,
-    val onboarded: Boolean = false
+    val onboarded: Boolean = false,
+    /** Require the device screen lock before showing the ledger. */
+    val appLock: Boolean = false
 )
 
 data class Category(
@@ -104,6 +130,13 @@ object Categories {
     val fallbackIncome: Category = income.last()
 
     fun of(key: String): Category = byKey[key] ?: fallbackExpense
+
+    /** Case-insensitive label lookup, used when reading CSV exports back in. */
+    fun byLabel(label: String, type: TxType): Category? {
+        val wanted = label.trim().lowercase()
+        return forType(type).firstOrNull { it.label.lowercase() == wanted }
+            ?: all.firstOrNull { it.label.lowercase() == wanted }
+    }
 
     fun forType(type: TxType): List<Category> = if (type == TxType.INCOME) income else expense
 

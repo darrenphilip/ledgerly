@@ -4,39 +4,17 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.time.LocalDate
 
 class LedgerDatabase(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, NAME, null, VERSION) {
+    SQLiteOpenHelper(context.applicationContext, NAME, null, Migrations.VERSION) {
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                amount_cents INTEGER NOT NULL,
-                category TEXT NOT NULL,
-                note TEXT NOT NULL DEFAULT '',
-                date_epoch_day INTEGER NOT NULL,
-                created_at INTEGER NOT NULL
-            )
-            """.trimIndent()
-        )
-        db.execSQL("CREATE INDEX idx_transactions_date ON transactions(date_epoch_day)")
-        db.execSQL(
-            """
-            CREATE TABLE budgets (
-                category TEXT PRIMARY KEY,
-                limit_cents INTEGER NOT NULL
-            )
-            """.trimIndent()
-        )
+        Migrations.create(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS transactions")
-        db.execSQL("DROP TABLE IF EXISTS budgets")
-        onCreate(db)
+        Migrations.upgrade(db, oldVersion)
     }
 
     fun readTransactions(): List<Transaction> {
@@ -59,7 +37,7 @@ class LedgerDatabase(context: Context) :
                     amountCents = cursor.getLong(amountIdx),
                     categoryKey = cursor.getString(categoryIdx),
                     note = cursor.getString(noteIdx) ?: "",
-                    date = java.time.LocalDate.ofEpochDay(cursor.getLong(dateIdx)),
+                    date = LocalDate.ofEpochDay(cursor.getLong(dateIdx)),
                     createdAt = cursor.getLong(createdIdx)
                 )
             }
@@ -106,14 +84,20 @@ class LedgerDatabase(context: Context) :
         writableDatabase.delete("transactions", "id = ?", arrayOf(id.toString()))
     }
 
-    fun readBudgets(): List<Budget> {
+    /** Every budget row, including per-month overrides. */
+    fun readBudgetRows(): List<Budget> {
         val list = mutableListOf<Budget>()
-        readableDatabase.query("budgets", null, null, null, null, null, "limit_cents DESC")
+        readableDatabase.query("budgets", null, null, null, null, null, "month DESC, limit_cents DESC")
             .use { cursor ->
+                val monthIdx = cursor.getColumnIndexOrThrow("month")
                 val categoryIdx = cursor.getColumnIndexOrThrow("category")
                 val limitIdx = cursor.getColumnIndexOrThrow("limit_cents")
                 while (cursor.moveToNext()) {
-                    list += Budget(cursor.getString(categoryIdx), cursor.getLong(limitIdx))
+                    list += Budget(
+                        categoryKey = cursor.getString(categoryIdx),
+                        limitCents = cursor.getLong(limitIdx),
+                        month = cursor.getString(monthIdx) ?: ""
+                    )
                 }
             }
         return list
@@ -121,6 +105,7 @@ class LedgerDatabase(context: Context) :
 
     fun upsertBudget(budget: Budget) {
         val values = ContentValues().apply {
+            put("month", budget.month)
             put("category", budget.categoryKey)
             put("limit_cents", budget.limitCents)
         }
@@ -129,8 +114,10 @@ class LedgerDatabase(context: Context) :
         )
     }
 
-    fun deleteBudget(categoryKey: String) {
-        writableDatabase.delete("budgets", "category = ?", arrayOf(categoryKey))
+    fun deleteBudget(categoryKey: String, month: String = "") {
+        writableDatabase.delete(
+            "budgets", "category = ? AND month = ?", arrayOf(categoryKey, month)
+        )
     }
 
     fun insertBudgets(budgets: List<Budget>) {
@@ -144,6 +131,68 @@ class LedgerDatabase(context: Context) :
         }
     }
 
+    fun readRecurring(): List<Recurring> {
+        val list = mutableListOf<Recurring>()
+        readableDatabase.query("recurring", null, null, null, null, null, "next_due_epoch_day ASC")
+            .use { cursor ->
+                val idIdx = cursor.getColumnIndexOrThrow("id")
+                val typeIdx = cursor.getColumnIndexOrThrow("type")
+                val amountIdx = cursor.getColumnIndexOrThrow("amount_cents")
+                val categoryIdx = cursor.getColumnIndexOrThrow("category")
+                val noteIdx = cursor.getColumnIndexOrThrow("note")
+                val cadenceIdx = cursor.getColumnIndexOrThrow("cadence")
+                val dueIdx = cursor.getColumnIndexOrThrow("next_due_epoch_day")
+                val activeIdx = cursor.getColumnIndexOrThrow("active")
+                while (cursor.moveToNext()) {
+                    list += Recurring(
+                        id = cursor.getLong(idIdx),
+                        type = TxType.from(cursor.getString(typeIdx)),
+                        amountCents = cursor.getLong(amountIdx),
+                        categoryKey = cursor.getString(categoryIdx),
+                        note = cursor.getString(noteIdx) ?: "",
+                        cadence = Cadence.from(cursor.getString(cadenceIdx)),
+                        nextDue = LocalDate.ofEpochDay(cursor.getLong(dueIdx)),
+                        active = cursor.getInt(activeIdx) != 0
+                    )
+                }
+            }
+        return list
+    }
+
+    fun insertRecurring(item: Recurring): Long {
+        val values = ContentValues().apply {
+            put("type", item.type.raw)
+            put("amount_cents", item.amountCents)
+            put("category", item.categoryKey)
+            put("note", item.note)
+            put("cadence", item.cadence.name)
+            put("next_due_epoch_day", item.nextDue.toEpochDay())
+            put("active", if (item.active) 1 else 0)
+        }
+        return writableDatabase.insert("recurring", null, values)
+    }
+
+    fun updateRecurring(item: Recurring) {
+        val values = ContentValues().apply {
+            put("type", item.type.raw)
+            put("amount_cents", item.amountCents)
+            put("category", item.categoryKey)
+            put("note", item.note)
+            put("cadence", item.cadence.name)
+            put("next_due_epoch_day", item.nextDue.toEpochDay())
+            put("active", if (item.active) 1 else 0)
+        }
+        writableDatabase.update("recurring", values, "id = ?", arrayOf(item.id.toString()))
+    }
+
+    fun deleteRecurring(id: Long) {
+        writableDatabase.delete("recurring", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun clearRecurring() {
+        writableDatabase.delete("recurring", null, null)
+    }
+
     fun clearTransactions() {
         writableDatabase.delete("transactions", null, null)
     }
@@ -154,6 +203,5 @@ class LedgerDatabase(context: Context) :
 
     companion object {
         private const val NAME = "ledgerly.db"
-        private const val VERSION = 1
     }
 }

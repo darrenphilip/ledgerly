@@ -2,7 +2,10 @@ package com.ledgerly.app.ui.screens
 
 import android.content.ClipData
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,14 +30,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.PieChart
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.SettingsBrightness
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,15 +80,19 @@ import androidx.compose.ui.unit.sp
 import com.ledgerly.app.BuildConfig
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.BudgetStyle
+import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
+import com.ledgerly.app.ui.components.CategoryBadge
 import com.ledgerly.app.ui.components.LedgerCard
 import com.ledgerly.app.ui.components.RowDivider
 import com.ledgerly.app.ui.sheets.BudgetAmountDialog
 import com.ledgerly.app.ui.theme.ledgerColors
 import com.ledgerly.app.util.CsvExporter
 import com.ledgerly.app.util.Currencies
+import com.ledgerly.app.util.DateFormats
 import com.ledgerly.app.util.Money
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -91,6 +103,8 @@ import kotlinx.coroutines.withContext
 fun SettingsScreen(
     settings: AppSettings,
     transactions: List<Transaction>,
+    recurring: List<Recurring>,
+    canUseAppLock: Boolean,
     onBack: () -> Unit,
     onNameChange: (String) -> Unit,
     onCurrencyChange: (String) -> Unit,
@@ -98,8 +112,14 @@ fun SettingsScreen(
     onIncomeChange: (Long) -> Unit,
     onBudgetStyleChange: (BudgetStyle) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
+    onAppLockChange: (Boolean) -> Unit,
     onLoadSampleData: () -> Unit,
-    onClearAllData: () -> Unit
+    onClearAllData: () -> Unit,
+    onBackupRequested: suspend () -> String,
+    onRestoreRequested: suspend (String, Boolean) -> String,
+    onImportCsvRequested: suspend (String) -> String,
+    onAddRecurring: () -> Unit,
+    onEditRecurring: (Recurring) -> Unit
 ) {
     var showNameDialog by remember { mutableStateOf(false) }
     var showCurrencyDialog by remember { mutableStateOf(false) }
@@ -108,10 +128,64 @@ fun SettingsScreen(
     var showStyleDialog by remember { mutableStateOf(false) }
     var showSampleConfirm by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val extras = MaterialTheme.ledgerColors
     val currencyOption = Currencies.of(settings.currency)
+
+    fun readText(uri: Uri): String? = runCatching {
+        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+    }.getOrNull()
+
+    fun toast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
+    val createBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val json = onBackupRequested()
+            val written = runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                        it.write(json)
+                    } ?: error("Could not open the chosen file")
+                }
+            }
+            toast(if (written.isSuccess) "Backup saved" else "Couldn't write the backup file")
+        }
+    }
+
+    val openBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = readText(uri)
+        if (text == null) {
+            toast("Couldn't read that file")
+        } else {
+            pendingRestoreJson = text
+        }
+    }
+
+    val openCsv = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = readText(uri)
+        if (text == null) {
+            toast("Couldn't read that file")
+        } else {
+            scope.launch {
+                val summary = runCatching { onImportCsvRequested(text) }
+                    .getOrElse { "That file isn't a Ledgerly CSV export" }
+                toast(summary)
+            }
+        }
+    }
 
     val exportCsv: () -> Unit = {
         scope.launch {
@@ -288,6 +362,29 @@ fun SettingsScreen(
                     onClick = exportCsv,
                     enabled = transactions.isNotEmpty()
                 )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.Backup,
+                    title = "Back up to a file",
+                    subtitle = "Saves transactions, budgets, recurring entries and settings as a restore file",
+                    onClick = { createBackup.launch("ledgerly-backup.json") }
+                )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.Restore,
+                    title = "Restore from a backup",
+                    subtitle = "Replace or merge with a previously saved backup file",
+                    onClick = { openBackup.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) }
+                )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.FileUpload,
+                    title = "Import CSV",
+                    subtitle = "Reads a previously exported CSV back into the ledger",
+                    onClick = {
+                        openCsv.launch(arrayOf("text/*", "application/vnd.ms-excel"))
+                    }
+                )
                 if (SampleData.available) {
                     RowDivider(Modifier.padding(horizontal = 16.dp))
                     SettingsRow(
@@ -304,6 +401,36 @@ fun SettingsScreen(
                     subtitle = "Remove every transaction and budget",
                     onClick = { showClearConfirm = true },
                     danger = true
+                )
+            }
+
+            SectionLabel("Automation")
+            LedgerCard(contentPadding = PaddingValues(0.dp)) {
+                SettingsRow(
+                    icon = Icons.Rounded.Repeat,
+                    title = "Add recurring entry",
+                    subtitle = if (recurring.isEmpty()) "Rent, salary, subscriptions — log once per cycle"
+                    else "Schedule entries that repeat on their own",
+                    onClick = onAddRecurring
+                )
+                recurring.forEach { item ->
+                    RowDivider(Modifier.padding(horizontal = 16.dp))
+                    RecurringRow(item = item, currency = settings.currency, onClick = { onEditRecurring(item) })
+                }
+            }
+
+            SectionLabel("Privacy")
+            LedgerCard(contentPadding = PaddingValues(0.dp)) {
+                SettingsRow(
+                    icon = Icons.Rounded.Lock,
+                    title = "App lock",
+                    subtitle = when {
+                        !canUseAppLock -> "Your device has no screen lock yet"
+                        settings.appLock -> "On \u00b7 asks for your device screen lock when reopened"
+                        else -> "Off \u00b7 opens straight to the ledger"
+                    },
+                    onClick = { if (canUseAppLock) onAppLockChange(!settings.appLock) },
+                    enabled = canUseAppLock
                 )
             }
 
@@ -520,6 +647,83 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    pendingRestoreJson?.let { json ->
+        AlertDialog(
+            onDismissRequest = { pendingRestoreJson = null },
+            title = { Text("Restore this backup?") },
+            text = {
+                Column {
+                    Text(
+                        "Replace removes what's on the device and loads the backup. Merge keeps " +
+                            "everything and only adds transactions that aren't there yet."
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(
+                        onClick = {
+                            pendingRestoreJson = null
+                            scope.launch {
+                                val summary = runCatching { onRestoreRequested(json, false) }
+                                    .getOrElse { "That file isn't a Ledgerly backup" }
+                                toast(summary)
+                            }
+                        }
+                    ) { Text("Merge instead") }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingRestoreJson = null
+                        scope.launch {
+                            val summary = runCatching { onRestoreRequested(json, true) }
+                                .getOrElse { "That file isn't a Ledgerly backup" }
+                            toast(summary)
+                        }
+                    }
+                ) { Text("Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreJson = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun RecurringRow(item: Recurring, currency: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryBadge(category = Categories.of(item.categoryKey), size = 34.dp, emojiSize = 16.sp)
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.note.ifBlank { Categories.of(item.categoryKey).label },
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${Money.format(item.amountCents, currency)} \u00b7 ${item.cadence.label.lowercase()} \u00b7 next ${DateFormats.fullDate(item.nextDue)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(20.dp)
         )
     }
 }

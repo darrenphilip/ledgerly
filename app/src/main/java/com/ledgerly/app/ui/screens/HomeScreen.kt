@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.components.CategoryBadge
 import com.ledgerly.app.ui.components.DonutChart
@@ -87,7 +91,11 @@ fun HomeScreen(
     onOpenBudgets: () -> Unit,
     onOpenInsights: () -> Unit,
     onSetBudget: () -> Unit,
-    onTransactionClick: (Transaction) -> Unit
+    onTransactionClick: (Transaction) -> Unit,
+    dueRecurring: List<Recurring> = emptyList(),
+    onLogRecurring: (Recurring) -> Unit = {},
+    onSnoozeRecurring: (Recurring) -> Unit = {},
+    onManageRecurring: () -> Unit = {}
 ) {
     val statuses = remember(budgets, stats) { BudgetMath.budgetStatuses(budgets, stats) }
     val ruleMode = budgetStyle == BudgetStyle.RULE_50_30_20
@@ -158,6 +166,18 @@ fun HomeScreen(
                     canGoNext = canGoNext,
                     onPrevious = onPreviousMonth,
                     onNext = onNextMonth
+                )
+            }
+        }
+
+        if (dueRecurring.isNotEmpty()) {
+            item {
+                DueRecurringCard(
+                    items = dueRecurring,
+                    currency = currency,
+                    onLog = onLogRecurring,
+                    onSnooze = onSnoozeRecurring,
+                    onManage = onManageRecurring
                 )
             }
         }
@@ -277,6 +297,7 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HeroCard(
     stats: MonthStats,
@@ -360,20 +381,25 @@ private fun HeroCard(
                     height = 8.dp
                 )
                 Spacer(Modifier.height(10.dp))
-                Row {
+                // Wraps onto its own line at large font scales instead of splitting an amount.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     Text(
                         text = "${Money.format(stats.spentCents, currency)} of ${
                             Money.format(monthlyBudgetCents, currency)
                         }",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.82f),
-                        modifier = Modifier.weight(1f)
+                        softWrap = false
                     )
                     if (isCurrentMonth && remaining > 0) {
                         Text(
                             text = "${Money.format(safe, currency)}/day safe",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.82f)
+                            color = Color.White.copy(alpha = 0.82f),
+                            softWrap = false
                         )
                     }
                 }
@@ -401,6 +427,62 @@ private fun HeroCard(
                     ) {
                         Text("Set", style = MaterialTheme.typography.labelLarge)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DueRecurringCard(
+    items: List<Recurring>,
+    currency: String,
+    onLog: (Recurring) -> Unit,
+    onSnooze: (Recurring) -> Unit,
+    onManage: () -> Unit
+) {
+    LedgerCard(contentPadding = PaddingValues(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (items.size == 1) "1 entry is due" else "${items.size} entries are due",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onManage) {
+                Text("Manage", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        items.forEach { item ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CategoryBadge(category = Categories.of(item.categoryKey), size = 34.dp, emojiSize = 16.sp)
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.note.ifBlank { Categories.of(item.categoryKey).label },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${Money.format(item.amountCents, currency)} · due ${DateFormats.fullDate(item.nextDue)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = { onSnooze(item) }) {
+                    Text("Skip", style = MaterialTheme.typography.labelMedium)
+                }
+                Button(
+                    onClick = { onLog(item) },
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text("Add", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

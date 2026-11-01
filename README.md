@@ -37,6 +37,8 @@ lives in a local SQLite database on the device.
 - Overall monthly budget with progress and remaining amount.
 - Per-category monthly limits with colour-coded progress
   (healthy → warning at 80% → over).
+- Limits can apply to **every month** or only to the month you're viewing, so a one-off month
+  doesn't rewrite your defaults.
 - **50:30:20 mode** (opt-in in Settings): enter your monthly income and Ledgerly splits it
   into 50% needs / 30% wants / 20% savings, with a plan card showing each bucket's target,
   spending, remaining and a plain-language verdict. Savings is a category, so logging a
@@ -54,8 +56,17 @@ lives in a local SQLite database on the device.
 - Add/edit sheet with a big amount pad, emoji category grid, note, and date picker
   (Today / Yesterday / any date).
 - 13 expense categories + 4 income categories, each with its own colour and emoji.
+- **Recurring entries**: rent, salary and subscriptions that come due show up in a card on
+  Home; log them in one tap (or skip a cycle) and the next date advances itself.
+- **App lock**: optionally require the device screen lock before the ledger opens. No
+  password is stored by the app.
+- **Backup and restore**: one JSON file holds transactions, budgets, recurring entries and
+  settings; restore it by replacing everything or merging into what's on the device.
+- **CSV import** alongside export, so an export is a usable backup — duplicates are skipped
+  and unreadable rows are reported rather than silently dropped.
 - Light / dark / system theme, 19 currencies including **Indonesian Rupiah**, CSV export
   (share sheet), sample data (debug builds only).
+- Launcher shortcut (long-press the icon → *Add expense*) that opens the amount pad directly.
 - Rupiah-aware money entry: `50000`, `50.000` and `50,000` all mean Rp 50.000, with a live
   preview of the amount that will be saved. IDR is the default for new installs.
 - Onboarding that sets your name, currency and monthly budget.
@@ -66,7 +77,7 @@ Prebuilt APKs are attached to each **GitHub Release** — download the APK on yo
 and open it (allow install from unknown sources), or:
 
 ```bash
-adb install -r ledgerly-1.1.0.apk     # signed release build
+adb install -r ledgerly-1.2.0.apk     # signed release build
 ```
 
 Requires **Android 8.0+** (minSdk 26).
@@ -75,7 +86,7 @@ Requires **Android 8.0+** (minSdk 26).
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk   # SDK 35 + build-tools 35.0.0
-./gradlew :app:testDebugUnitTest           # 36 unit tests
+./gradlew :app:testDebugUnitTest           # 63 unit tests (JVM + Robolectric)
 ./gradlew :app:assembleDebug               # debug APK
 ./gradlew :app:assembleRelease             # release APK
 ```
@@ -114,24 +125,30 @@ design system; local-first data; and a verify-by-running loop. Two files capture
 
 ```
 app/src/main/java/com/ledgerly/app/
-├── MainActivity.kt              # edge-to-edge entry point
+├── MainActivity.kt              # edge-to-edge entry point, app-lock + shortcut intent
 ├── data/
-│   ├── Models.kt                # Transaction, Budget, AppSettings, categories
-│   ├── LedgerDatabase.kt        # SQLiteOpenHelper (transactions + budgets)
-│   ├── LedgerRepository.kt      # DB + SharedPreferences access
+│   ├── Models.kt                # Transaction, Budget, Recurring, AppSettings, categories
+│   ├── Migrations.kt            # forward-only schema steps (v1 → v2)
+│   ├── LedgerDatabase.kt        # SQLiteOpenHelper (transactions, budgets, recurring)
+│   ├── LedgerRepository.kt      # DB + SharedPreferences access, backup/restore
 │   └── SampleData.kt            # deterministic 4-month demo dataset
 ├── ui/
 │   ├── App.kt                   # theme, tabs, FAB, sheets, navigation
+│   ├── LockScreen.kt            # device-credential gate
 │   ├── AppViewModel.kt          # StateFlow state + coroutine writes
 │   ├── components/              # cards, charts, transaction row
 │   ├── screens/                 # Home, Activity, Budgets, Insights, Settings, Onboarding
-│   ├── sheets/                  # transaction / budget editors, amount dialog
+│   ├── sheets/                  # transaction / budget / recurring editors, amount dialog
 │   └── theme/                   # colour scheme, typography, shapes
 └── util/
     ├── Money.kt                 # cent-based parsing/formatting, currencies
     ├── BudgetMath.kt            # pure aggregation/insight functions (unit tested)
+    ├── RecurringMath.kt         # due list + next-date rollover (unit tested)
+    ├── BackupCodec.kt           # JSON backup encode/decode (unit tested)
+    ├── Json.kt                  # tiny JSON reader/writer
     ├── DateFormats.kt
-    └── CsvExporter.kt
+    ├── CsvExporter.kt
+    └── CsvImporter.kt           # CSV parse + duplicate detection (unit tested)
 ```
 
 - Money is stored as **integer cents** to avoid floating-point drift.
@@ -144,9 +161,15 @@ app/src/main/java/com/ledgerly/app/
 - Category→bucket mapping lives on `Category.bucket`; there is no per-category override UI yet.
 - Budget style (`SIMPLE` / `RULE_50_30_20`) and monthly income are stored in the existing
   SharedPreferences keyspace — no database migration.
+- Schema changes go through `Migrations.kt`: every version step is applied in order inside
+  `SQLiteOpenHelper`'s transaction and must keep existing rows. `MigrationTest` opens a real
+  v1 database, upgrades it and asserts the ledger survives.
+- Budgets carry an optional `month` (`2026-10`); an empty month is the default that applies
+  everywhere, and a month row overrides it for that month only.
 - State is exposed from the ViewModel as `StateFlow`; writes go to `Dispatchers.IO`.
 - No third-party runtime dependencies beyond AndroidX/Compose — no ads, no analytics,
-  no network permission at all.
+  no network permission at all. The backup file uses a small hand-rolled JSON codec (`Json.kt`)
+  rather than pulling in a serialisation library.
 
 ## Continuous integration
 
@@ -157,9 +180,11 @@ release only needs the tag and the notes file to exist.
 
 ## Tests
 
-21 JVM unit tests cover money parsing/formatting (including zero-decimal currencies like JPY
-and whole-unit currencies like IDR) and the budgeting math (summaries, slices, budget status,
-projections, trends, the 50/30/20 split and bucket aggregation).
+63 JVM unit tests (plus Robolectric for the database) cover money parsing/formatting
+(including zero-decimal currencies like JPY and whole-unit currencies like IDR), the budgeting
+math (summaries, slices, budget status, projections, trends, the 50/30/20 split and bucket
+aggregation), CSV import/export round-trips, the backup codec, recurring date rollover, and
+the schema migration from v1.
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -169,6 +194,21 @@ projections, trends, the 50/30/20 split and bucket aggregation).
 
 Ledgerly requests **no permissions** — not even internet access. Your transactions never
 leave the device unless you explicitly export them.
+
+Android auto-backup is disabled (`allowBackup="false"`), so the ledger isn't copied to Google
+Drive either. The backup file you create from Settings is the only copy that leaves the app,
+and it goes wherever you choose to save it.
+
+## What I'd build next
+
+- Per-category bucket overrides (e.g. move Travel from wants to needs)
+- "Apply plan to category budgets" — seed per-category limits from the 50:30:20 split
+- Per-bucket pace warnings on Home
+- Home-screen widget with the "left to spend" figure
+- Multiple accounts/wallets
+- Receipt photo attachments
+- Translating the UI (strings are still English literals in Kotlin; `strings.xml` holds only
+the app name and shortcut labels)
 
 ## Demo data
 
@@ -181,15 +221,3 @@ zero and only ever holds what you enter.
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-## What I'd build next
-
-- Per-category bucket overrides (e.g. move Travel from wants to needs)
-- "Apply plan to category budgets" — seed per-category limits from the 50:30:20 split
-- Per-bucket pace warnings on Home
-- Recurring transactions and upcoming-bill reminders
-- Home-screen widget with the "left to spend" figure
-- Multiple accounts/wallets
-- Receipt photo attachments
-- Backup/restore of the SQLite database
-- Optional biometric lock

@@ -62,6 +62,8 @@ fun BudgetsScreen(
     budgetStyle: BudgetStyle,
     currency: String,
     month: YearMonth,
+    /** Categories whose limit was set for this month only. */
+    monthOverrides: Set<String> = emptySet(),
     canGoNext: Boolean,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -148,6 +150,7 @@ fun BudgetsScreen(
                     BudgetCard(
                         status = statuses[index],
                         currency = currency,
+                        isMonthOverride = statuses[index].categoryKey in monthOverrides,
                         onClick = { onEditBudget(statuses[index].categoryKey) }
                     )
                 }
@@ -421,6 +424,7 @@ private fun bucketTint(bucket: Bucket): Color = when (bucket) {
 private fun BudgetCard(
     status: BudgetStatus,
     currency: String,
+    isMonthOverride: Boolean = false,
     onClick: () -> Unit
 ) {
     val category = Categories.of(status.categoryKey)
@@ -454,6 +458,14 @@ private fun BudgetCard(
                 Spacer(Modifier.height(8.dp))
                 ProgressBar(progress = status.progress, color = tint, height = 7.dp)
                 Spacer(Modifier.height(7.dp))
+                if (isMonthOverride) {
+                    Text(
+                        text = "This month only",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(5.dp))
+                }
                 Row {
                     Text(
                         text = "${Money.format(status.spentCents, currency)} of ${

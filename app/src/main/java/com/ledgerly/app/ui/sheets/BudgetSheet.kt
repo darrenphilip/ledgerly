@@ -26,6 +26,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -54,11 +57,15 @@ import com.ledgerly.app.util.Money
 fun BudgetSheet(
     existingCategoryKey: String?,
     existingLimitCents: Long?,
+    /** Set when the limit shown comes from a single-month override. */
+    isMonthOverride: Boolean = false,
+    /** Human label of the visible month, e.g. `Oct 2026`. */
+    monthLabel: String = "",
     availableCategories: List<Category>,
     currency: String,
     onDismiss: () -> Unit,
-    onSave: (String, Long) -> Unit,
-    onDelete: (String) -> Unit
+    onSave: (String, Long, Boolean) -> Unit,
+    onDelete: (String, Boolean) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedKey by remember {
@@ -67,6 +74,7 @@ fun BudgetSheet(
     var amountText by remember {
         mutableStateOf(existingLimitCents?.let { Money.plain(it, currency) } ?: "")
     }
+    var thisMonthOnly by remember { mutableStateOf(isMonthOverride) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val amountCents = Money.parseToCents(amountText, currency)
     val existingCategory = existingCategoryKey?.let { Categories.of(it) }
@@ -132,6 +140,35 @@ fun BudgetSheet(
             }
 
             Spacer(Modifier.height(18.dp))
+            Text(
+                text = "Applies to",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = !thisMonthOnly,
+                    onClick = { thisMonthOnly = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) {
+                    Text("Every month", style = MaterialTheme.typography.labelMedium)
+                }
+                SegmentedButton(
+                    selected = thisMonthOnly,
+                    onClick = { thisMonthOnly = true },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) {
+                    Text(
+                        text = monthLabel.ifBlank { "This month" },
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
             OutlinedTextField(
                 value = amountText,
                 onValueChange = { input ->
@@ -164,7 +201,7 @@ fun BudgetSheet(
                 onClick = {
                     val key = selectedKey ?: return@Button
                     val cents = amountCents ?: return@Button
-                    onSave(key, cents)
+                    onSave(key, cents, thisMonthOnly)
                 },
                 enabled = amountCents != null && selectedKey != null,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -183,7 +220,7 @@ fun BudgetSheet(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Remove budget",
+                        text = if (thisMonthOnly) "Remove this month's limit" else "Remove budget",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.labelLarge
                     )
@@ -196,12 +233,12 @@ fun BudgetSheet(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Remove this budget?") },
-            text = { Text("Spending in this category will no longer be tracked against a limit.") },
+            text = { Text("Spending in this category will no longer be tracked against a limit for this scope.") },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showDeleteConfirm = false
-                        onDelete(existingCategoryKey)
+                        onDelete(existingCategoryKey, thisMonthOnly)
                     }
                 ) {
                     Text("Remove", color = MaterialTheme.colorScheme.error)

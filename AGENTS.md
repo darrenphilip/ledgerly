@@ -17,7 +17,7 @@ Target: **minSdk 26, targetSdk/compileSdk 35, JDK 17**.
 ## 2. Commands
 
 ```bash
-./gradlew :app:testDebugUnitTest    # 36 unit tests — must stay green
+./gradlew :app:testDebugUnitTest    # 63 tests (JVM + Robolectric) — must stay green
 ./gradlew :app:assembleDebug        # debug APK  (com.ledgerly.app.debug)
 ./gradlew :app:assembleRelease      # release APK (signed if keys exist, else unsigned)
 ./gradlew lintVitalRelease          # runs automatically as part of assembleRelease
@@ -31,7 +31,8 @@ vars (`LEDGERLY_KEYSTORE`, `LEDGERLY_KEYSTORE_PASSWORD`, `LEDGERLY_KEY_ALIAS`,
 
 ```
 app/src/main/java/com/ledgerly/app/
-  MainActivity.kt          edge-to-edge entry point, nothing else
+  MainActivity.kt          entry point: app-lock state, shortcut intent, edge-to-edge
+  data/Migrations.kt       forward-only schema steps; never drop user tables
   data/                    models, SQLiteOpenHelper, repository, sample data
   ui/App.kt                theme + tabs + FAB + sheets (app shell)
   ui/AppViewModel.kt       StateFlow state, coroutine writes
@@ -39,8 +40,8 @@ app/src/main/java/com/ledgerly/app/
   ui/screens/              one file per screen
   ui/sheets/               bottom sheets + dialogs
   ui/theme/                color scheme, typography, shapes, custom tokens
-  util/                    Money, BudgetMath, DateFormats, CsvExporter
-app/src/test/java/…        JVM unit tests for pure logic
+  util/                    Money, BudgetMath, RecurringMath, BackupCodec, Json, CSV
+app/src/test/java/…        JVM unit tests for pure logic; MigrationTest uses Robolectric
 ```
 
 ## 4. Non-negotiable rules
@@ -58,6 +59,11 @@ app/src/test/java/…        JVM unit tests for pure logic
   If you add a stat, add a unit test for it.
 - Persistence stays on-device. Adding `INTERNET` or any new permission is a design
   decision that must be called out explicitly.
+- Schema changes go through `data/Migrations.kt`: bump `Migrations.VERSION`, add a step,
+  and extend `MigrationTest` so an upgrade from the previous version keeps every row.
+  `LedgerDatabase.onUpgrade` must never drop a table that holds user data.
+- Android auto-backup stays disabled (`allowBackup="false"`); the user's own backup file is
+  the export path. Don't turn it back on without updating the README's privacy section.
 - Demo data is **debug-only**. Everything in `data/SampleData.kt` is reachable only when
   `SampleData.available` (`BuildConfig.DEBUG`) is true. Release builds must start empty:
   no seeded transactions, no seeded budgets, no prefilled budget field. If you add a new

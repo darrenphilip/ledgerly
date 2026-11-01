@@ -31,6 +31,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,11 +43,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.screens.ActivityScreen
@@ -57,11 +60,14 @@ import com.ledgerly.app.ui.screens.OnboardingScreen
 import com.ledgerly.app.ui.screens.SettingsScreen
 import com.ledgerly.app.ui.sheets.BudgetAmountDialog
 import com.ledgerly.app.ui.sheets.BudgetSheet
+import com.ledgerly.app.ui.sheets.RecurringSheet
 import com.ledgerly.app.ui.sheets.TransactionSheet
 import com.ledgerly.app.ui.theme.LedgerlyTheme
 import com.ledgerly.app.util.BudgetMath
+import com.ledgerly.app.util.DateFormats
 import kotlinx.coroutines.launch
 import java.time.YearMonth
+import android.app.KeyguardManager
 
 private data class TabItem(
     val label: String,
@@ -76,15 +82,26 @@ private val tabs = listOf(
 )
 
 @Composable
-fun LedgerlyApp(viewModel: AppViewModel = viewModel()) {
+fun LedgerlyApp(
+    viewModel: AppViewModel = viewModel(),
+    locked: Boolean = false,
+    onUnlock: () -> Unit = {},
+    pendingAdd: Boolean = false,
+    onPendingAddHandled: () -> Unit = {}
+) {
     val transactions by viewModel.transactions.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
+    val monthOverrides by viewModel.monthOverrides.collectAsState()
+    val recurring by viewModel.recurring.collectAsState()
+    val dueRecurring by viewModel.dueRecurring.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val month by viewModel.month.collectAsState()
     val loading by viewModel.loading.collectAsState()
 
     LedgerlyTheme(themeMode = settings.theme) {
         when {
+            locked && settings.appLock -> LockScreen(onUnlock = onUnlock)
+
             loading && !settings.onboarded -> OnboardingScreen(
                 defaultCurrency = settings.currency,
                 onComplete = viewModel::completeOnboarding
@@ -101,8 +118,13 @@ fun LedgerlyApp(viewModel: AppViewModel = viewModel()) {
                 viewModel = viewModel,
                 transactions = transactions,
                 budgets = budgets,
+                monthOverrides = monthOverrides,
+                recurring = recurring,
+                dueRecurring = dueRecurring,
                 settings = settings,
-                month = month
+                month = month,
+                pendingAdd = pendingAdd,
+                onPendingAddHandled = onPendingAddHandled
             )
         }
     }
@@ -125,8 +147,13 @@ private fun MainScaffold(
     viewModel: AppViewModel,
     transactions: List<Transaction>,
     budgets: Map<String, Long>,
+    monthOverrides: Set<String>,
+    recurring: List<Recurring>,
+    dueRecurring: List<Recurring>,
     settings: AppSettings,
-    month: YearMonth
+    month: YearMonth,
+    pendingAdd: Boolean,
+    onPendingAddHandled: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -136,6 +163,8 @@ private fun MainScaffold(
     var budgetSheetCategory by remember { mutableStateOf<String?>(null) }
     var showMonthlyBudgetDialog by remember { mutableStateOf(false) }
     var showIncomeDialog by remember { mutableStateOf(false) }
+    var showRecurringSheet by remember { mutableStateOf(false) }
+    var editingRecurring by remember { mutableStateOf<Recurring?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -170,10 +199,40 @@ private fun MainScaffold(
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = !showSettings && selectedTab != 0) { selectedTab = 0 }
 
+    LaunchedEffect(pendingAdd) {
+        if (pendingAdd) {
+            openEditor(null)
+            onPendingAddHandled()
+        }
+    }
+
+    // Rendered before the settings branch: the sheet is opened from Settings, and it draws in
+    // its own window, so composing it here keeps it reachable from both screens.
+    if (showRecurringSheet) {
+        RecurringSheet(
+            editing = editingRecurring,
+            currency = currency,
+            onDismiss = { showRecurringSheet = false },
+            onSave = { item ->
+                if (editingRecurring == null) viewModel.addRecurring(item)
+                else viewModel.updateRecurring(item)
+                showRecurringSheet = false
+            },
+            onDelete = { item ->
+                viewModel.deleteRecurring(item)
+                showRecurringSheet = false
+            }
+        )
+    }
+
     if (showSettings) {
         SettingsScreen(
             settings = settings,
             transactions = transactions,
+            recurring = recurring,
+            canUseAppLock = LocalContext.current.let { context ->
+                context.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+            },
             onBack = { showSettings = false },
             onNameChange = viewModel::setName,
             onCurrencyChange = viewModel::setCurrency,
@@ -181,8 +240,22 @@ private fun MainScaffold(
             onIncomeChange = viewModel::setMonthlyIncome,
             onBudgetStyleChange = viewModel::setBudgetStyle,
             onThemeChange = viewModel::setTheme,
+            onAppLockChange = viewModel::setAppLock,
             onLoadSampleData = viewModel::resetWithSampleData,
-            onClearAllData = viewModel::clearAllData
+            onClearAllData = viewModel::clearAllData,
+            onBackupRequested = { viewModel.buildBackupJson() },
+            onRestoreRequested = { json, replace ->
+                viewModel.restoreBackupReport(json, replace)
+            },
+            onImportCsvRequested = { text -> viewModel.importCsv(text) },
+            onAddRecurring = {
+                editingRecurring = null
+                showRecurringSheet = true
+            },
+            onEditRecurring = { item ->
+                editingRecurring = item
+                showRecurringSheet = true
+            }
         )
         return
     }
@@ -276,7 +349,11 @@ private fun MainScaffold(
                     onSetBudget = {
                         if (ruleMode) showIncomeDialog = true else showMonthlyBudgetDialog = true
                     },
-                    onTransactionClick = { openEditor(it) }
+                    onTransactionClick = { openEditor(it) },
+                    dueRecurring = dueRecurring,
+                    onLogRecurring = { viewModel.logRecurring(it) },
+                    onSnoozeRecurring = { viewModel.snoozeRecurring(it) },
+                    onManageRecurring = { showSettings = true }
                 )
 
                 1 -> ActivityScreen(
@@ -299,6 +376,7 @@ private fun MainScaffold(
                     budgetStyle = settings.budgetStyle,
                     currency = currency,
                     month = month,
+                    monthOverrides = monthOverrides,
                     canGoNext = canGoNext,
                     onPreviousMonth = { viewModel.selectMonth(month.minusMonths(1)) },
                     onNextMonth = { viewModel.selectMonth(month.plusMonths(1)) },
@@ -355,6 +433,8 @@ private fun MainScaffold(
         BudgetSheet(
             existingCategoryKey = editingKey,
             existingLimitCents = editingKey?.let { budgets[it] },
+            isMonthOverride = editingKey != null && editingKey in monthOverrides,
+            monthLabel = DateFormats.monthShort(month),
             availableCategories = if (editingKey == null) {
                 Categories.expense.filter { it.key !in budgets }
             } else {
@@ -362,12 +442,12 @@ private fun MainScaffold(
             },
             currency = currency,
             onDismiss = { showBudgetSheet = false },
-            onSave = { key, cents ->
-                viewModel.setBudget(key, cents)
+            onSave = { key, cents, thisMonthOnly ->
+                viewModel.setBudget(key, cents, thisMonthOnly)
                 showBudgetSheet = false
             },
-            onDelete = { key ->
-                viewModel.deleteBudget(key)
+            onDelete = { key, thisMonthOnly ->
+                viewModel.deleteBudget(key, thisMonthOnly)
                 showBudgetSheet = false
             }
         )
