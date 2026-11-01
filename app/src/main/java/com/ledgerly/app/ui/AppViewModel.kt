@@ -3,6 +3,7 @@ package com.ledgerly.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.ledgerly.app.BuildConfig
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.Budget
 import com.ledgerly.app.data.BudgetStyle
@@ -10,10 +11,13 @@ import com.ledgerly.app.data.LedgerRepository
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
+import com.ledgerly.app.data.UpdateClient
 import com.ledgerly.app.util.Backup
 import com.ledgerly.app.util.BackupCodec
 import com.ledgerly.app.util.CsvImporter
 import com.ledgerly.app.util.RecurringMath
+import com.ledgerly.app.util.ReleaseInfo
+import com.ledgerly.app.util.UpdateCheck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,6 +57,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    private val updateClient = UpdateClient()
+
+    private val _availableUpdate = MutableStateFlow<ReleaseInfo?>(null)
+    val availableUpdate: StateFlow<ReleaseInfo?> = _availableUpdate.asStateFlow()
+
+    private val _updateStatus = MutableStateFlow(UpdateCheck.Status())
+    val updateStatus: StateFlow<UpdateCheck.Status> = _updateStatus.asStateFlow()
 
     init {
         viewModelScope.launch { reload() }
@@ -169,6 +181,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setName(name: String) = saveSettings(_settings.value.copy(name = name.trim()))
 
     fun setAppLock(enabled: Boolean) = saveSettings(_settings.value.copy(appLock = enabled))
+
+    fun setCheckUpdates(enabled: Boolean) = saveSettings(_settings.value.copy(checkUpdates = enabled))
+
+    /**
+     * Asks the public release feed whether a newer version exists. Failure is silent unless the
+     * user asked for the check, in which case [UpdateCheck.Status.failed] lets the UI say so.
+     */
+    fun checkForUpdates() {
+        if (_updateStatus.value.checking) return
+        _updateStatus.value = _updateStatus.value.copy(checking = true, failed = false)
+        viewModelScope.launch {
+            val info = withContext(Dispatchers.IO) { updateClient.fetchLatest() }
+            val newer = info?.takeIf { UpdateCheck.isNewer(it.version, BuildConfig.VERSION_NAME) }
+            _availableUpdate.value = newer
+            _updateStatus.value = UpdateCheck.Status(
+                checking = false,
+                lastChecked = System.currentTimeMillis(),
+                failed = info == null
+            )
+        }
+    }
+
+    /** Downloads the APK for [info] into the cache dir; null when it fails. */
+    suspend fun downloadUpdate(info: ReleaseInfo): java.io.File? = withContext(Dispatchers.IO) {
+        updateClient.download(info, java.io.File(getApplication<Application>().cacheDir, "updates"))
+    }
 
     fun addRecurring(item: Recurring) {
         viewModelScope.launch {

@@ -86,7 +86,9 @@ data class AppSettings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val onboarded: Boolean = false,
     /** Require the device screen lock before showing the ledger. */
-    val appLock: Boolean = false
+    val appLock: Boolean = false,
+    /** Ask GitHub for a newer release when the app starts. */
+    val checkUpdates: Boolean = true
 )
 
 data class Category(

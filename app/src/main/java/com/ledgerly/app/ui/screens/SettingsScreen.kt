@@ -30,8 +30,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
-import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Autorenew
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileDownload
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.SettingsBrightness
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -94,6 +96,8 @@ import com.ledgerly.app.util.CsvExporter
 import com.ledgerly.app.util.Currencies
 import com.ledgerly.app.util.DateFormats
 import com.ledgerly.app.util.Money
+import com.ledgerly.app.util.ReleaseInfo
+import com.ledgerly.app.util.UpdateCheck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -105,6 +109,9 @@ fun SettingsScreen(
     transactions: List<Transaction>,
     recurring: List<Recurring>,
     canUseAppLock: Boolean,
+    availableUpdate: ReleaseInfo?,
+    updateStatus: UpdateCheck.Status,
+    updating: Boolean,
     onBack: () -> Unit,
     onNameChange: (String) -> Unit,
     onCurrencyChange: (String) -> Unit,
@@ -113,6 +120,9 @@ fun SettingsScreen(
     onBudgetStyleChange: (BudgetStyle) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
     onAppLockChange: (Boolean) -> Unit,
+    onCheckUpdatesChange: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onInstallUpdate: () -> Unit,
     onLoadSampleData: () -> Unit,
     onClearAllData: () -> Unit,
     onBackupRequested: suspend () -> String,
@@ -417,6 +427,44 @@ fun SettingsScreen(
                     RowDivider(Modifier.padding(horizontal = 16.dp))
                     RecurringRow(item = item, currency = settings.currency, onClick = { onEditRecurring(item) })
                 }
+            }
+
+            SectionLabel("Updates")
+            LedgerCard(contentPadding = PaddingValues(0.dp)) {
+                SettingsRow(
+                    icon = Icons.Rounded.SystemUpdate,
+                    title = when {
+                        availableUpdate != null -> "Update to ${availableUpdate.version}"
+                        updateStatus.checking -> "Checking for updates…"
+                        updateStatus.failed -> "Check for updates"
+                        updateStatus.lastChecked > 0L -> "You're up to date"
+                        else -> "Check for updates"
+                    },
+                    subtitle = when {
+                        updating -> "Downloading…"
+                        availableUpdate != null -> "Tap to download and install ${availableUpdate.apkName}"
+                        updateStatus.checking -> "Asking the GitHub release feed"
+                        updateStatus.failed -> "Couldn't reach GitHub · tap to retry"
+                        updateStatus.lastChecked > 0L ->
+                            "Version ${BuildConfig.VERSION_NAME} · checked just now"
+                        else -> "Version ${BuildConfig.VERSION_NAME} · GitHub releases"
+                    },
+                    onClick = {
+                        if (availableUpdate != null) onInstallUpdate() else onCheckForUpdates()
+                    },
+                    enabled = !updating && !updateStatus.checking
+                )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.Autorenew,
+                    title = "Check automatically",
+                    subtitle = if (settings.checkUpdates) {
+                        "Looks for a new release when the app opens"
+                    } else {
+                        "Off · only checks when you ask"
+                    },
+                    onClick = { onCheckUpdatesChange(!settings.checkUpdates) }
+                )
             }
 
             SectionLabel("Privacy")

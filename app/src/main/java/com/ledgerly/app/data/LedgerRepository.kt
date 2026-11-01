@@ -61,7 +61,8 @@ class LedgerRepository(context: Context) {
             monthlyIncomeCents = prefs.getLong("monthly_income_cents", 0L),
             theme = theme,
             onboarded = prefs.getBoolean("onboarded", false),
-            appLock = prefs.getBoolean("app_lock", false)
+            appLock = prefs.getBoolean("app_lock", false),
+            checkUpdates = prefs.getBoolean("check_updates", true)
         )
     }
 
@@ -75,6 +76,7 @@ class LedgerRepository(context: Context) {
             .putString("theme", settings.theme.name)
             .putBoolean("onboarded", settings.onboarded)
             .putBoolean("app_lock", settings.appLock)
+            .putBoolean("check_updates", settings.checkUpdates)
             .apply()
     }
 

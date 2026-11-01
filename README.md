@@ -64,6 +64,9 @@ lives in a local SQLite database on the device.
   settings; restore it by replacing everything or merging into what's on the device.
 - **CSV import** alongside export, so an export is a usable backup — duplicates are skipped
   and unreadable rows are reported rather than silently dropped.
+- **In-app updates**: Ledgerly asks the public GitHub release feed for a newer version and,
+  if there is one, shows a banner on Home; one tap downloads the APK and hands it to the
+  system installer.
 - Light / dark / system theme, 19 currencies including **Indonesian Rupiah**, CSV export
   (share sheet), sample data (debug builds only).
 - Launcher shortcut (long-press the icon → *Add expense*) that opens the amount pad directly.
@@ -192,8 +195,18 @@ the schema migration from v1.
 
 ## Privacy
 
-Ledgerly requests **no permissions** — not even internet access. Your transactions never
-leave the device unless you explicitly export them.
+Ledgerly holds **two permissions**, both only for getting updates: `INTERNET` (to ask GitHub
+for the latest release and download its APK) and `REQUEST_INSTALL_PACKAGES` (to hand that APK
+to the system installer). Nothing else leaves the device.
+
+- No analytics, no telemetry, no crash reporting, no ad SDKs.
+- The only request the app makes is `GET /repos/darrenphilip/ledgerly/releases/latest`, plus
+the APK download if you start one. Your transactions, budgets and settings are never sent
+anywhere, and the request carries no identifier.
+- Turn the check off in Settings → Updates → *Check automatically* if you'd rather it never
+talked to the network.
+- Android only accepts an update signed with the same key as the installed app, so a tampered
+download fails to install instead of replacing your ledger.
 
 Android auto-backup is disabled (`allowBackup="false"`), so the ledger isn't copied to Google
 Drive either. The backup file you create from Settings is the only copy that leaves the app,

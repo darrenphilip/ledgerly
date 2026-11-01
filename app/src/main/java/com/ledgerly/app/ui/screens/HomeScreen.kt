@@ -59,11 +59,13 @@ import com.ledgerly.app.ui.components.ProgressBar
 import com.ledgerly.app.ui.components.SectionHeader
 import com.ledgerly.app.ui.components.StatTile
 import com.ledgerly.app.ui.components.TransactionRow
+import com.ledgerly.app.ui.components.UpdateBanner
 import com.ledgerly.app.ui.theme.ledgerColors
 import com.ledgerly.app.util.BudgetMath
 import com.ledgerly.app.util.DateFormats
 import com.ledgerly.app.util.Money
 import com.ledgerly.app.util.MonthStats
+import com.ledgerly.app.util.ReleaseInfo
 import java.time.LocalTime
 import java.time.YearMonth
 import kotlin.math.abs
@@ -95,7 +97,10 @@ fun HomeScreen(
     dueRecurring: List<Recurring> = emptyList(),
     onLogRecurring: (Recurring) -> Unit = {},
     onSnoozeRecurring: (Recurring) -> Unit = {},
-    onManageRecurring: () -> Unit = {}
+    onManageRecurring: () -> Unit = {},
+    availableUpdate: ReleaseInfo? = null,
+    updating: Boolean = false,
+    onUpdate: () -> Unit = {}
 ) {
     val statuses = remember(budgets, stats) { BudgetMath.budgetStatuses(budgets, stats) }
     val ruleMode = budgetStyle == BudgetStyle.RULE_50_30_20
@@ -127,6 +132,16 @@ fun HomeScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (availableUpdate != null) {
+            item {
+                UpdateBanner(
+                    info = availableUpdate,
+                    updating = updating,
+                    onUpdate = onUpdate
+                )
+            }
+        }
+
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {

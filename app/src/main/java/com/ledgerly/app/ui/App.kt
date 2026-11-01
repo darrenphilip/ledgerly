@@ -52,6 +52,7 @@ import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.Transaction
+import com.ledgerly.app.ui.components.ApkInstaller
 import com.ledgerly.app.ui.screens.ActivityScreen
 import com.ledgerly.app.ui.screens.BudgetsScreen
 import com.ledgerly.app.ui.screens.HomeScreen
@@ -65,6 +66,8 @@ import com.ledgerly.app.ui.sheets.TransactionSheet
 import com.ledgerly.app.ui.theme.LedgerlyTheme
 import com.ledgerly.app.util.BudgetMath
 import com.ledgerly.app.util.DateFormats
+import com.ledgerly.app.util.ReleaseInfo
+import com.ledgerly.app.util.UpdateCheck
 import kotlinx.coroutines.launch
 import java.time.YearMonth
 import android.app.KeyguardManager
@@ -97,6 +100,13 @@ fun LedgerlyApp(
     val settings by viewModel.settings.collectAsState()
     val month by viewModel.month.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val availableUpdate by viewModel.availableUpdate.collectAsState()
+    val updateStatus by viewModel.updateStatus.collectAsState()
+
+    // One check per launch, opt-out in Settings. Failure is silent.
+    LaunchedEffect(Unit) {
+        if (viewModel.settings.value.checkUpdates) viewModel.checkForUpdates()
+    }
 
     LedgerlyTheme(themeMode = settings.theme) {
         when {
@@ -124,7 +134,9 @@ fun LedgerlyApp(
                 settings = settings,
                 month = month,
                 pendingAdd = pendingAdd,
-                onPendingAddHandled = onPendingAddHandled
+                onPendingAddHandled = onPendingAddHandled,
+                availableUpdate = availableUpdate,
+                updateStatus = updateStatus
             )
         }
     }
@@ -153,7 +165,9 @@ private fun MainScaffold(
     settings: AppSettings,
     month: YearMonth,
     pendingAdd: Boolean,
-    onPendingAddHandled: () -> Unit
+    onPendingAddHandled: () -> Unit,
+    availableUpdate: ReleaseInfo?,
+    updateStatus: UpdateCheck.Status
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -168,6 +182,8 @@ private fun MainScaffold(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var updating by remember { mutableStateOf(false) }
 
     val currency = settings.currency
     val ruleMode = settings.budgetStyle == BudgetStyle.RULE_50_30_20
@@ -179,6 +195,23 @@ private fun MainScaffold(
     fun openEditor(transaction: Transaction?) {
         editorTransaction = transaction
         showEditor = true
+    }
+
+    fun installUpdate() {
+        val info = availableUpdate ?: return
+        if (updating) return
+        updating = true
+        scope.launch {
+            val file = viewModel.downloadUpdate(info)
+            updating = false
+            val message = when {
+                file == null -> "Couldn't download the update. Try again later."
+                !ApkInstaller.install(context, file) ->
+                    "Couldn't open the installer. Check that Ledgerly may install apps."
+                else -> null
+            }
+            message?.let { snackbarHostState.showSnackbar(it) }
+        }
     }
 
     fun deleteWithUndo(transaction: Transaction) {
@@ -233,6 +266,9 @@ private fun MainScaffold(
             canUseAppLock = LocalContext.current.let { context ->
                 context.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
             },
+            availableUpdate = availableUpdate,
+            updateStatus = updateStatus,
+            updating = updating,
             onBack = { showSettings = false },
             onNameChange = viewModel::setName,
             onCurrencyChange = viewModel::setCurrency,
@@ -241,6 +277,9 @@ private fun MainScaffold(
             onBudgetStyleChange = viewModel::setBudgetStyle,
             onThemeChange = viewModel::setTheme,
             onAppLockChange = viewModel::setAppLock,
+            onCheckUpdatesChange = viewModel::setCheckUpdates,
+            onCheckForUpdates = { viewModel.checkForUpdates() },
+            onInstallUpdate = { installUpdate() },
             onLoadSampleData = viewModel::resetWithSampleData,
             onClearAllData = viewModel::clearAllData,
             onBackupRequested = { viewModel.buildBackupJson() },
@@ -353,7 +392,10 @@ private fun MainScaffold(
                     dueRecurring = dueRecurring,
                     onLogRecurring = { viewModel.logRecurring(it) },
                     onSnoozeRecurring = { viewModel.snoozeRecurring(it) },
-                    onManageRecurring = { showSettings = true }
+                    onManageRecurring = { showSettings = true },
+                    availableUpdate = availableUpdate,
+                    updating = updating,
+                    onUpdate = { installUpdate() }
                 )
 
                 1 -> ActivityScreen(

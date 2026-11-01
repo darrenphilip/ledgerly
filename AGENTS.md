@@ -57,8 +57,10 @@ app/src/test/java/…        JVM unit tests for pure logic; MigrationTest uses R
   (`Category.bucket`), not a hard-coded list in the UI.
 - All aggregation/insight logic is a **pure function** in `util/BudgetMath.kt`.
   If you add a stat, add a unit test for it.
-- Persistence stays on-device. Adding `INTERNET` or any new permission is a design
-  decision that must be called out explicitly.
+- Persistence stays on-device. The app holds exactly two permissions, both for updates:
+  `INTERNET` and `REQUEST_INSTALL_PACKAGES`. Any further permission is a design decision that
+  must be called out explicitly. Keep the network surface to `data/UpdateClient.kt` — one GET
+  for the release feed plus the APK download. Don't add analytics or identifiers.
 - Schema changes go through `data/Migrations.kt`: bump `Migrations.VERSION`, add a step,
   and extend `MigrationTest` so an upgrade from the previous version keeps every row.
   `LedgerDatabase.onUpgrade` must never drop a table that holds user data.
