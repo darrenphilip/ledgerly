@@ -3,11 +3,14 @@ package com.ledgerly.app.util
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.Budget
 import com.ledgerly.app.data.BudgetStyle
+import com.ledgerly.app.data.Bucket
 import com.ledgerly.app.data.Cadence
+import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.data.TxType
+import androidx.compose.ui.graphics.Color
 import java.time.LocalDate
 
 /** Everything needed to restore a ledger, minus the screen-lock preference. */
@@ -16,12 +19,14 @@ data class Backup(
     val budgets: List<Budget>,
     val recurring: List<Recurring>,
     val settings: AppSettings,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** User-defined categories; built-ins are compiled in and never written here. */
+    val categories: List<Category> = emptyList()
 )
 
 object BackupCodec {
 
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     fun encode(backup: Backup): String = Json.write(
         mapOf(
@@ -56,6 +61,17 @@ object BackupCodec {
                     "nextDue" to it.nextDue.toString(),
                     "active" to it.active
                 )
+            },
+            "categories" to backup.categories.map {
+                mapOf(
+                    "key" to it.key,
+                    "label" to it.label,
+                    "emoji" to it.emoji,
+                    "color" to it.color.value.toLong(),
+                    "bucket" to it.bucket?.name,
+                    "type" to it.type.raw,
+                    "hidden" to it.hidden
+                )
             }
         )
     )
@@ -66,7 +82,8 @@ object BackupCodec {
         "monthlyBudgetCents" to settings.monthlyBudgetCents,
         "budgetStyle" to settings.budgetStyle.name,
         "monthlyIncomeCents" to settings.monthlyIncomeCents,
-        "theme" to settings.theme.name
+        "theme" to settings.theme.name,
+        "monthStartDay" to settings.monthStartDay
     )
 
     /** Throws [IllegalArgumentException] when the file isn't a Ledgerly backup. */
@@ -89,7 +106,8 @@ object BackupCodec {
             theme = runCatching { ThemeMode.valueOf(settingsMap["theme"] as? String ?: "") }
                 .getOrDefault(ThemeMode.SYSTEM),
             onboarded = true,
-            appLock = false
+            appLock = false,
+            monthStartDay = (settingsMap["monthStartDay"] as? Number)?.toInt()?.coerceIn(1, 28) ?: 1
         )
 
         val transactions = (root["transactions"] as? List<*>).orEmpty().mapNotNull { entry ->
@@ -131,7 +149,24 @@ object BackupCodec {
             )
         }
 
-        return Backup(transactions, budgets, recurring, settings)
+        val categories = (root["categories"] as? List<*>).orEmpty().mapNotNull { entry ->
+            val map = entry as? Map<*, *> ?: return@mapNotNull null
+            val key = map["key"] as? String ?: return@mapNotNull null
+            Category(
+                key = key,
+                label = map["label"] as? String ?: key,
+                emoji = map["emoji"] as? String ?: "✨",
+                color = Color(map.long("color").toULong()),
+                bucket = (map["bucket"] as? String)?.let { raw ->
+                    Bucket.entries.firstOrNull { it.name == raw }
+                },
+                type = TxType.from(map["type"] as? String),
+                custom = true,
+                hidden = map["hidden"] as? Boolean ?: false
+            )
+        }
+
+        return Backup(transactions, budgets, recurring, settings, categories = categories)
     }
 
     private fun Map<*, *>.long(key: String): Long = (this[key] as? Number)?.toLong() ?: 0L

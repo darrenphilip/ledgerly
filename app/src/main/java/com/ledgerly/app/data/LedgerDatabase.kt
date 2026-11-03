@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.compose.ui.graphics.Color
 import java.time.LocalDate
 
 class LedgerDatabase(context: Context) :
@@ -195,6 +196,58 @@ class LedgerDatabase(context: Context) :
 
     fun clearTransactions() {
         writableDatabase.delete("transactions", null, null)
+    }
+
+    fun readCategories(): List<Category> {
+        val list = mutableListOf<Category>()
+        readableDatabase.query("categories", null, null, null, null, null, "label COLLATE NOCASE ASC")
+            .use { cursor ->
+                val keyIdx = cursor.getColumnIndexOrThrow("key")
+                val labelIdx = cursor.getColumnIndexOrThrow("label")
+                val emojiIdx = cursor.getColumnIndexOrThrow("emoji")
+                val colorIdx = cursor.getColumnIndexOrThrow("color")
+                val bucketIdx = cursor.getColumnIndexOrThrow("bucket")
+                val typeIdx = cursor.getColumnIndexOrThrow("type")
+                val hiddenIdx = cursor.getColumnIndexOrThrow("hidden")
+                while (cursor.moveToNext()) {
+                    list += Category(
+                        key = cursor.getString(keyIdx),
+                        label = cursor.getString(labelIdx),
+                        emoji = cursor.getString(emojiIdx),
+                        color = Color(cursor.getLong(colorIdx).toULong()),
+                        bucket = cursor.getString(bucketIdx)?.let { raw ->
+                            Bucket.entries.firstOrNull { it.name == raw }
+                        },
+                        type = TxType.from(cursor.getString(typeIdx)),
+                        custom = true,
+                        hidden = cursor.getInt(hiddenIdx) != 0
+                    )
+                }
+            }
+        return list
+    }
+
+    fun upsertCategory(category: Category) {
+        val values = ContentValues().apply {
+            put("key", category.key)
+            put("label", category.label)
+            put("emoji", category.emoji)
+            put("color", category.color.value.toLong())
+            put("bucket", category.bucket?.name)
+            put("type", category.type.raw)
+            put("hidden", if (category.hidden) 1 else 0)
+        }
+        writableDatabase.insertWithOnConflict(
+            "categories", null, values, SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun deleteCategory(key: String) {
+        writableDatabase.delete("categories", "key = ?", arrayOf(key))
+    }
+
+    fun clearCategories() {
+        writableDatabase.delete("categories", null, null)
     }
 
     fun clearBudgets() {

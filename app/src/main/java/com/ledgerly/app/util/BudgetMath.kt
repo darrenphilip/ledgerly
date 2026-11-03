@@ -84,14 +84,22 @@ data class BudgetPlan(
 
 object BudgetMath {
 
-    fun summarize(transactions: List<Transaction>, month: YearMonth): MonthStats {
+    /**
+     * Totals for [month]. [startDay] of 1 means a calendar month; anything else makes the cycle
+     * run from that day, matching `Cycles`.
+     */
+    fun summarize(
+        transactions: List<Transaction>,
+        month: YearMonth,
+        startDay: Int = 1
+    ): MonthStats {
         var spent = 0L
         var income = 0L
         var count = 0
         val byCategory = LinkedHashMap<String, Long>()
 
         for (tx in transactions) {
-            if (YearMonth.from(tx.date) != month) continue
+            if (!Cycles.contains(tx.date, month, startDay)) continue
             count++
             if (tx.type == TxType.EXPENSE) {
                 spent += tx.amountCents
@@ -110,8 +118,11 @@ object BudgetMath {
         )
     }
 
-    fun inMonth(transactions: List<Transaction>, month: YearMonth): List<Transaction> =
-        transactions.filter { YearMonth.from(it.date) == month }
+    fun inMonth(
+        transactions: List<Transaction>,
+        month: YearMonth,
+        startDay: Int = 1
+    ): List<Transaction> = transactions.filter { Cycles.contains(it.date, month, startDay) }
 
     fun categorySlices(stats: MonthStats, limit: Int = 5): List<CategorySlice> {
         if (stats.spentCents <= 0L) return emptyList()
@@ -138,29 +149,25 @@ object BudgetMath {
     fun unbudgetedSpend(stats: MonthStats, budgets: Map<String, Long>): Long =
         stats.byCategory.filterKeys { it !in budgets }.values.sum()
 
-    fun daysLeftInMonth(month: YearMonth, today: LocalDate = LocalDate.now()): Int {
-        if (month != YearMonth.from(today)) {
-            return if (month.isAfter(YearMonth.from(today))) month.lengthOfMonth() else 0
-        }
-        return (month.lengthOfMonth() - today.dayOfMonth + 1).coerceAtLeast(0)
-    }
+    fun daysLeftInMonth(month: YearMonth, startDay: Int = 1, today: LocalDate = LocalDate.now()): Int =
+        Cycles.daysLeft(month, startDay, today)
 
-    fun daysElapsedInMonth(month: YearMonth, today: LocalDate = LocalDate.now()): Int {
-        return when {
-            month == YearMonth.from(today) -> today.dayOfMonth
-            month.isBefore(YearMonth.from(today)) -> month.lengthOfMonth()
-            else -> 1
-        }.coerceAtLeast(1)
-    }
+    fun daysElapsedInMonth(month: YearMonth, startDay: Int = 1, today: LocalDate = LocalDate.now()): Int =
+        Cycles.daysElapsed(month, startDay, today).coerceAtLeast(1)
 
-    fun dailyAverage(stats: MonthStats, today: LocalDate = LocalDate.now()): Long {
-        val days = daysElapsedInMonth(stats.month, today)
+    fun dailyAverage(stats: MonthStats, startDay: Int = 1, today: LocalDate = LocalDate.now()): Long {
+        val days = daysElapsedInMonth(stats.month, startDay, today)
         return stats.spentCents / days
     }
 
-    fun safeToSpend(remainingCents: Long, month: YearMonth, today: LocalDate = LocalDate.now()): Long {
+    fun safeToSpend(
+        remainingCents: Long,
+        month: YearMonth,
+        startDay: Int = 1,
+        today: LocalDate = LocalDate.now()
+    ): Long {
         if (remainingCents <= 0) return 0
-        val days = daysLeftInMonth(month, today)
+        val days = daysLeftInMonth(month, startDay, today)
         if (days <= 0) return 0
         return remainingCents / days
     }
@@ -174,7 +181,8 @@ object BudgetMath {
     fun trend(
         transactions: List<Transaction>,
         endMonth: YearMonth,
-        count: Int = 6
+        count: Int = 6,
+        startDay: Int = 1
     ): List<MonthPoint> {
         val start = endMonth.minusMonths((count - 1).toLong())
         val byMonth = LinkedHashMap<YearMonth, LongArray>()
@@ -182,30 +190,37 @@ object BudgetMath {
             byMonth[start.plusMonths(i.toLong())] = longArrayOf(0L, 0L)
         }
         for (tx in transactions) {
-            val m = YearMonth.from(tx.date)
+            val m = Cycles.cycleOf(tx.date, startDay)
             val bucket = byMonth[m] ?: continue
             if (tx.type == TxType.EXPENSE) bucket[0] += tx.amountCents else bucket[1] += tx.amountCents
         }
         return byMonth.map { (month, values) -> MonthPoint(month, values[0], values[1]) }
     }
 
-    fun biggestExpense(transactions: List<Transaction>, month: YearMonth): Transaction? =
-        transactions.asSequence()
-            .filter { it.type == TxType.EXPENSE && YearMonth.from(it.date) == month }
-            .maxByOrNull { it.amountCents }
+    fun biggestExpense(
+        transactions: List<Transaction>,
+        month: YearMonth,
+        startDay: Int = 1
+    ): Transaction? = transactions.asSequence()
+        .filter { it.type == TxType.EXPENSE && Cycles.contains(it.date, month, startDay) }
+        .maxByOrNull { it.amountCents }
 
-    fun projectedSpend(stats: MonthStats, today: LocalDate = LocalDate.now()): Long {
-        if (stats.month != YearMonth.from(today)) return stats.spentCents
-        val elapsed = daysElapsedInMonth(stats.month, today)
-        return (stats.spentCents.toDouble() / elapsed * stats.month.lengthOfMonth()).toLong()
+    fun projectedSpend(stats: MonthStats, startDay: Int = 1, today: LocalDate = LocalDate.now()): Long {
+        if (!Cycles.contains(today, stats.month, startDay)) return stats.spentCents
+        val elapsed = daysElapsedInMonth(stats.month, startDay, today)
+        val length = Cycles.length(stats.month, startDay)
+        return (stats.spentCents.toDouble() / elapsed * length).toLong()
     }
 
-    fun subscriptionsTotal(transactions: List<Transaction>, month: YearMonth): Long =
-        transactions.filter {
-            it.type == TxType.EXPENSE &&
-                it.categoryKey == "subscriptions" &&
-                YearMonth.from(it.date) == month
-        }.sumOf { it.amountCents }
+    fun subscriptionsTotal(
+        transactions: List<Transaction>,
+        month: YearMonth,
+        startDay: Int = 1
+    ): Long = transactions.filter {
+        it.type == TxType.EXPENSE &&
+            it.categoryKey == "subscriptions" &&
+            Cycles.contains(it.date, month, startDay)
+    }.sumOf { it.amountCents }
 
     /**
      * Splits monthly income into needs/wants/savings. Each part is the exact share rounded

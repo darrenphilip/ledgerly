@@ -152,7 +152,9 @@ fun MonthSwitcher(
     canGoNext: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Overrides the label, e.g. a custom cycle like "25 Oct – 24 Nov". */
+    label: String = DateFormats.monthLabel(month)
 ) {
     Surface(
         modifier = modifier,
@@ -178,7 +180,7 @@ fun MonthSwitcher(
                 )
             }
             Text(
-                text = DateFormats.monthLabel(month),
+                text = label,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,

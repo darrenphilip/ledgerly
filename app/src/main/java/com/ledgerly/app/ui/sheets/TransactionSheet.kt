@@ -83,6 +83,7 @@ import java.time.ZoneOffset
 fun TransactionSheet(
     editing: Transaction?,
     currency: String,
+    categories: List<Category> = Categories.all,
     onDismiss: () -> Unit,
     onSave: (Transaction) -> Unit,
     onDelete: (Transaction) -> Unit
@@ -159,9 +160,10 @@ fun TransactionSheet(
                 type = type,
                 onTypeChange = { newType ->
                     type = newType
-                    val allowed = Categories.forType(newType).map { it.key }
+                    val allowed = categories.filter { it.type == newType }.map { it.key }
                     if (categoryKey !in allowed) {
-                        categoryKey = Categories.defaultForType(newType).key
+                        categoryKey = allowed.firstOrNull()
+                            ?: Categories.defaultForType(newType).key
                     }
                 }
             )
@@ -217,7 +219,7 @@ fun TransactionSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Categories.forType(type).forEach { category ->
+                categories.filter { it.type == type }.forEach { category ->
                     CategoryOption(
                         category = category,
                         selected = category.key == categoryKey,
@@ -438,6 +440,17 @@ private fun CategoryOption(category: Category, selected: Boolean, onClick: () ->
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
+        // Which pot it counts toward, so the 50:30:20 split is never a mystery.
+        val bucket = category.bucket
+        if (bucket != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = bucket.short.lowercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                maxLines = 1
+            )
+        }
     }
 }
 

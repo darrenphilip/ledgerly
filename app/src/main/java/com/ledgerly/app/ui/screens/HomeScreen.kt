@@ -83,6 +83,8 @@ fun HomeScreen(
     currency: String,
     name: String,
     isCurrentMonth: Boolean,
+    cycleLabel: String = "",
+
     canGoNext: Boolean,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -180,7 +182,8 @@ fun HomeScreen(
                     month = month,
                     canGoNext = canGoNext,
                     onPrevious = onPreviousMonth,
-                    onNext = onNextMonth
+                    onNext = onNextMonth,
+                    label = cycleLabel.ifBlank { DateFormats.monthLabel(month) }
                 )
             }
         }

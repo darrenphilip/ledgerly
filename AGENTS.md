@@ -40,7 +40,7 @@ app/src/main/java/com/ledgerly/app/
   ui/screens/              one file per screen
   ui/sheets/               bottom sheets + dialogs
   ui/theme/                color scheme, typography, shapes, custom tokens
-  util/                    Money, BudgetMath, RecurringMath, BackupCodec, Json, CSV
+  util/                    Money, BudgetMath, Cycles, RecurringMath, BackupCodec, Json, CSV
 app/src/test/java/…        JVM unit tests for pure logic; MigrationTest uses Robolectric
 ```
 
@@ -48,6 +48,9 @@ app/src/test/java/…        JVM unit tests for pure logic; MigrationTest uses R
 
 **Money & data**
 - Amounts are `Long` **cents**. Never `Float`/`Double` for money.
+- Category buckets are data, not UI logic: a category says whether it is a need, want or
+  saving, and `BudgetMath.bucketSpend` reads that. Never hard-code a category→bucket list in a
+  screen, and never ask the user to bucket individual transactions.
 - Parsing/formatting lives in `util/Money.kt`; formatting is currency-aware
   (including zero-decimal currencies like JPY and whole-unit currencies like IDR).
   `parseToCents` takes the currency code, because rupiah grouping (`50.000`) and

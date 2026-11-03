@@ -46,6 +46,7 @@ import com.ledgerly.app.ui.components.ProgressBar
 import com.ledgerly.app.ui.components.SectionHeader
 import com.ledgerly.app.ui.theme.ledgerColors
 import com.ledgerly.app.util.BudgetMath
+import com.ledgerly.app.util.DateFormats
 import com.ledgerly.app.util.BudgetPlan
 import com.ledgerly.app.util.BudgetStatus
 import com.ledgerly.app.util.Money
@@ -64,6 +65,8 @@ fun BudgetsScreen(
     month: YearMonth,
     /** Categories whose limit was set for this month only. */
     monthOverrides: Set<String> = emptySet(),
+    cycleLabel: String = "",
+
     canGoNext: Boolean,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -96,7 +99,8 @@ fun BudgetsScreen(
                 month = month,
                 canGoNext = canGoNext,
                 onPrevious = onPreviousMonth,
-                onNext = onNextMonth
+                onNext = onNextMonth,
+                label = cycleLabel.ifBlank { DateFormats.monthLabel(month) }
             )
         }
         Spacer(Modifier.height(16.dp))

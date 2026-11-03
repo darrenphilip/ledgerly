@@ -90,16 +90,16 @@ class BudgetMathTest {
 
     @Test
     fun days_left_includes_today() {
-        assertEquals(22, BudgetMath.daysLeftInMonth(month, today))
-        assertEquals(0, BudgetMath.daysLeftInMonth(YearMonth.of(2026, 9), today))
+        assertEquals(22, BudgetMath.daysLeftInMonth(month, 1, today))
+        assertEquals(0, BudgetMath.daysLeftInMonth(YearMonth.of(2026, 9), 1, today))
     }
 
     @Test
     fun daily_average_and_safe_to_spend() {
         val stats = BudgetMath.summarize(transactions, month)
-        assertEquals(2_700L, BudgetMath.dailyAverage(stats, today))
-        assertEquals(1_363L, BudgetMath.safeToSpend(30_000L, month, today))
-        assertEquals(0L, BudgetMath.safeToSpend(-500L, month, today))
+        assertEquals(2_700L, BudgetMath.dailyAverage(stats, 1, today))
+        assertEquals(1_363L, BudgetMath.safeToSpend(30_000L, month, 1, today))
+        assertEquals(0L, BudgetMath.safeToSpend(-500L, month, 1, today))
     }
 
     @Test
@@ -124,7 +124,7 @@ class BudgetMathTest {
         assertEquals(10_000L, BudgetMath.biggestExpense(transactions, month)!!.amountCents)
         val stats = BudgetMath.summarize(transactions, month)
         // 27,000 over 10 elapsed days -> 83,700 projected over 31 days
-        assertEquals(83_700L, BudgetMath.projectedSpend(stats, today))
+        assertEquals(83_700L, BudgetMath.projectedSpend(stats, 1, today))
     }
 
     @Test

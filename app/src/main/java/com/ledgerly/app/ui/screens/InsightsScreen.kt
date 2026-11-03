@@ -66,6 +66,7 @@ fun InsightsScreen(
     monthlyBudgetCents: Long,
     currency: String,
     canGoNext: Boolean,
+    cycleLabel: String = "",
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onAddTransaction: () -> Unit
@@ -100,7 +101,8 @@ fun InsightsScreen(
                 month = month,
                 canGoNext = canGoNext,
                 onPrevious = onPreviousMonth,
-                onNext = onNextMonth
+                onNext = onNextMonth,
+                label = cycleLabel.ifBlank { DateFormats.monthLabel(month) }
             )
         }
         Spacer(Modifier.height(16.dp))

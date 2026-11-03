@@ -10,6 +10,39 @@ class LedgerRepository(context: Context) {
     private val db = LedgerDatabase(appContext)
     private val prefs = appContext.getSharedPreferences("ledgerly_prefs", Context.MODE_PRIVATE)
 
+    init {
+        // Category lookups happen from many places, so the catalogue is hydrated once here.
+        Categories.load(db.readCategories())
+    }
+
+    fun loadCategories(): List<Category> {
+        val rows = db.readCategories()
+        Categories.load(rows)
+        return Categories.all
+    }
+
+    fun saveCategory(category: Category) {
+        db.upsertCategory(category)
+        Categories.load(db.readCategories())
+    }
+
+    /** Removes a user category. Transactions already filed under it keep the key. */
+    fun deleteCategory(key: String) {
+        db.deleteCategory(key)
+        Categories.load(db.readCategories())
+    }
+
+    /** Hides a built-in category without destroying its label for existing transactions. */
+    fun hideCategory(category: Category) {
+        db.upsertCategory(category.copy(hidden = true, custom = true))
+        Categories.load(db.readCategories())
+    }
+
+    fun revealCategory(key: String) {
+        db.deleteCategory(key)
+        Categories.load(db.readCategories())
+    }
+
     fun loadTransactions(): List<Transaction> = db.readTransactions()
 
     /** Every budget row, including per-month overrides. Used by backups. */
@@ -62,7 +95,8 @@ class LedgerRepository(context: Context) {
             theme = theme,
             onboarded = prefs.getBoolean("onboarded", false),
             appLock = prefs.getBoolean("app_lock", false),
-            checkUpdates = prefs.getBoolean("check_updates", true)
+            checkUpdates = prefs.getBoolean("check_updates", true),
+            monthStartDay = prefs.getInt("month_start_day", 1).coerceIn(1, 28)
         )
     }
 
@@ -77,6 +111,7 @@ class LedgerRepository(context: Context) {
             .putBoolean("onboarded", settings.onboarded)
             .putBoolean("app_lock", settings.appLock)
             .putBoolean("check_updates", settings.checkUpdates)
+            .putInt("month_start_day", settings.monthStartDay.coerceIn(1, 28))
             .apply()
     }
 
@@ -84,7 +119,8 @@ class LedgerRepository(context: Context) {
         transactions = db.readTransactions(),
         budgets = db.readBudgetRows(),
         recurring = db.readRecurring(),
-        settings = loadSettings()
+        settings = loadSettings(),
+        categories = db.readCategories()
     )
 
     /** `replace = false` keeps what's on the device and only adds what's missing. */
@@ -93,11 +129,14 @@ class LedgerRepository(context: Context) {
             db.clearTransactions()
             db.clearBudgets()
             db.clearRecurring()
+            db.clearCategories()
         }
+        backup.categories.forEach { db.upsertCategory(it) }
         db.insertTransactions(backup.transactions)
         db.insertBudgets(backup.budgets)
         backup.recurring.forEach { db.insertRecurring(it) }
         saveSettings(backup.settings.copy(onboarded = true))
+        Categories.load(db.readCategories())
     }
 
     fun importTransactions(transactions: List<Transaction>): Int {

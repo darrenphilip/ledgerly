@@ -39,6 +39,13 @@ lives in a local SQLite database on the device.
   (healthy → warning at 80% → over).
 - Limits can apply to **every month** or only to the month you're viewing, so a one-off month
   doesn't rewrite your defaults.
+- **Your own categories**: create one with a name, icon and colour, and pick whether it counts
+  as a **need, want or saving**. Every category is bucketed, so the 50:30:20 plan sorts your
+  spending automatically — a "Gym" category marked as a need is counted against needs.
+  Built-in categories can be renamed, re-bucketed or hidden without touching history.
+- **Budget cycles**: if your salary doesn't land on the 1st, set the day your month starts
+  (payday). Totals, budgets and the plan then run from that day to the day before the next,
+  labelled like "25 Sep – 24 Oct".
 - **50:30:20 mode** (opt-in in Settings): enter your monthly income and Ledgerly splits it
   into 50% needs / 30% wants / 20% savings, with a plan card showing each bucket's target,
   spending, remaining and a plain-language verdict. Savings is a category, so logging a
@@ -130,9 +137,9 @@ design system; local-first data; and a verify-by-running loop. Two files capture
 app/src/main/java/com/ledgerly/app/
 ├── MainActivity.kt              # edge-to-edge entry point, app-lock + shortcut intent
 ├── data/
-│   ├── Models.kt                # Transaction, Budget, Recurring, AppSettings, categories
-│   ├── Migrations.kt            # forward-only schema steps (v1 → v2)
-│   ├── LedgerDatabase.kt        # SQLiteOpenHelper (transactions, budgets, recurring)
+│   ├── Models.kt                # Transaction, Budget, Recurring, Category, AppSettings
+│   ├── Migrations.kt            # forward-only schema steps (v1 → v3)
+│   ├── LedgerDatabase.kt        # SQLiteOpenHelper (transactions, budgets, recurring, categories)
 │   ├── LedgerRepository.kt      # DB + SharedPreferences access, backup/restore
 │   └── SampleData.kt            # deterministic 4-month demo dataset
 ├── ui/
@@ -146,6 +153,7 @@ app/src/main/java/com/ledgerly/app/
 └── util/
     ├── Money.kt                 # cent-based parsing/formatting, currencies
     ├── BudgetMath.kt            # pure aggregation/insight functions (unit tested)
+    ├── Cycles.kt                # payday budget cycles (unit tested)
     ├── RecurringMath.kt         # due list + next-date rollover (unit tested)
     ├── BackupCodec.kt           # JSON backup encode/decode (unit tested)
     ├── Json.kt                  # tiny JSON reader/writer
@@ -161,7 +169,13 @@ app/src/main/java/com/ledgerly/app/
 - All statistics are pure functions in `BudgetMath` and covered by unit tests. The 50/30/20
   split (`splitIncome`) rounds down and lets savings take the remainder, so the three parts
   always sum back to the income.
-- Category→bucket mapping lives on `Category.bucket`; there is no per-category override UI yet.
+- Category→bucket mapping lives on `Category.bucket`, editable from Settings → Categories.
+  Built-ins are compiled in; custom rows live in the `categories` table and override a
+  built-in with the same key (which is how renaming, re-bucketing and hiding work). Lookups go
+  through the `Categories` object, which is hydrated once by `LedgerRepository`.
+- Budget cycles are `Cycles`: a cycle is labelled by the month it mostly covers, so a start day
+  of 25 puts 25 Sep – 24 Oct in "October". Everything that groups by month takes a `startDay`
+  that defaults to 1 (calendar month), so callers that don't care stay unchanged.
 - Budget style (`SIMPLE` / `RULE_50_30_20`) and monthly income are stored in the existing
   SharedPreferences keyspace — no database migration.
 - Schema changes go through `Migrations.kt`: every version step is applied in order inside
@@ -183,11 +197,11 @@ release only needs the tag and the notes file to exist.
 
 ## Tests
 
-63 JVM unit tests (plus Robolectric for the database) cover money parsing/formatting
+93 JVM unit tests (plus Robolectric for the database) cover money parsing/formatting
 (including zero-decimal currencies like JPY and whole-unit currencies like IDR), the budgeting
 math (summaries, slices, budget status, projections, trends, the 50/30/20 split and bucket
-aggregation), CSV import/export round-trips, the backup codec, recurring date rollover, and
-the schema migration from v1.
+aggregation), CSV import/export round-trips, the backup codec, recurring date rollover, custom
+category bucketing, payday budget cycles, and the schema migration from v1.
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -214,7 +228,6 @@ and it goes wherever you choose to save it.
 
 ## What I'd build next
 
-- Per-category bucket overrides (e.g. move Travel from wants to needs)
 - "Apply plan to category budgets" — seed per-category limits from the 50:30:20 split
 - Per-bucket pace warnings on Home
 - Home-screen widget with the "left to spend" figure

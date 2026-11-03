@@ -7,14 +7,18 @@ import com.ledgerly.app.BuildConfig
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.Budget
 import com.ledgerly.app.data.BudgetStyle
+import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.LedgerRepository
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.data.UpdateClient
+import com.ledgerly.app.ui.screens.OnboardingResult
 import com.ledgerly.app.util.Backup
 import com.ledgerly.app.util.BackupCodec
 import com.ledgerly.app.util.CsvImporter
+import com.ledgerly.app.util.Cycles
 import com.ledgerly.app.util.RecurringMath
 import com.ledgerly.app.util.ReleaseInfo
 import com.ledgerly.app.util.UpdateCheck
@@ -39,6 +43,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _budgets = MutableStateFlow<Map<String, Long>>(emptyMap())
     val budgets: StateFlow<Map<String, Long>> = _budgets.asStateFlow()
 
+    /** Bumped whenever the catalogue changes, so screens recompose with fresh labels. */
+    private val _categories = MutableStateFlow(Categories.all)
+    val categories: StateFlow<List<Category>> = _categories.asStateFlow()
+
     /** Categories whose limit is overridden for the selected month. */
     private val _monthOverrides = MutableStateFlow<Set<String>>(emptySet())
     val monthOverrides: StateFlow<Set<String>> = _monthOverrides.asStateFlow()
@@ -52,7 +60,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _settings = MutableStateFlow(repository.loadSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    private val _month = MutableStateFlow(YearMonth.now())
+    private val _month = MutableStateFlow(Cycles.current(repository.loadSettings().monthStartDay))
     val month: StateFlow<YearMonth> = _month.asStateFlow()
 
     private val _loading = MutableStateFlow(true)
@@ -83,6 +91,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         budgetRows = loaded.budgetRows
         _recurring.value = loaded.recurring
         _dueRecurring.value = RecurringMath.due(loaded.recurring)
+        _categories.value = Categories.all
         _settings.value = loaded.settings
         applyBudgetsForSelectedMonth()
         _loading.value = false
@@ -107,8 +116,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectMonth(month: YearMonth) {
-        val clamped = if (month.isAfter(YearMonth.now())) YearMonth.now() else month
-        _month.value = clamped
+        val currentCycle = Cycles.current(_settings.value.monthStartDay)
+        _month.value = if (month.isAfter(currentCycle)) currentCycle else month
         applyBudgetsForSelectedMonth()
     }
 
@@ -181,6 +190,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setName(name: String) = saveSettings(_settings.value.copy(name = name.trim()))
 
     fun setAppLock(enabled: Boolean) = saveSettings(_settings.value.copy(appLock = enabled))
+
+    fun setMonthStartDay(day: Int) {
+        val settings = _settings.value.copy(monthStartDay = day.coerceIn(1, 28))
+        saveSettings(settings)
+        _month.value = Cycles.current(settings.monthStartDay)
+        applyBudgetsForSelectedMonth()
+    }
+
+    fun saveCategory(category: Category) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.saveCategory(category) }
+            _categories.value = repository.loadCategories()
+        }
+    }
+
+    fun deleteCategory(key: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.deleteCategory(key) }
+            _categories.value = repository.loadCategories()
+            reload()
+        }
+    }
+
+    fun hideCategory(category: Category) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.hideCategory(category) }
+            _categories.value = repository.loadCategories()
+        }
+    }
+
+    fun revealCategory(key: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.revealCategory(key) }
+            _categories.value = repository.loadCategories()
+        }
+    }
+
+    /** How many transactions are filed under a category, for the delete confirmation. */
+    fun usageOf(key: String): Int = _transactions.value.count { it.categoryKey == key }
 
     fun setCheckUpdates(enabled: Boolean) = saveSettings(_settings.value.copy(checkUpdates = enabled))
 
@@ -305,24 +353,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun completeOnboarding(
-        name: String,
-        currency: String,
-        monthlyBudgetCents: Long,
-        withSampleData: Boolean
-    ) {
+    /** Applies the full first-run result in one write. */
+    fun completeOnboarding(result: OnboardingResult) {
         val updated = _settings.value.copy(
-            name = name.trim(),
-            currency = currency,
-            monthlyBudgetCents = monthlyBudgetCents,
+            name = result.name,
+            currency = result.currency,
+            monthlyBudgetCents = result.monthlyBudgetCents,
+            monthlyIncomeCents = result.monthlyIncomeCents,
+            budgetStyle = result.budgetStyle,
+            monthStartDay = result.monthStartDay.coerceIn(1, 28),
             onboarded = true
         )
         _loading.value = true
         _settings.value = updated
+        _month.value = Cycles.current(updated.monthStartDay)
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 repository.saveSettings(updated)
-                if (withSampleData) repository.seedSampleData()
+                if (result.withSampleData) repository.seedSampleData()
             }
             reload()
         }

@@ -60,6 +60,8 @@ fun ActivityScreen(
     transactions: List<Transaction>,
     month: YearMonth,
     currency: String,
+    cycleLabel: String = "",
+
     canGoNext: Boolean,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -135,7 +137,8 @@ fun ActivityScreen(
                 month = month,
                 canGoNext = canGoNext,
                 onPrevious = onPreviousMonth,
-                onNext = onNextMonth
+                onNext = onNextMonth,
+                label = cycleLabel.ifBlank { DateFormats.monthLabel(month) }
             )
         }
 

@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.Transaction
@@ -61,10 +62,12 @@ import com.ledgerly.app.ui.screens.OnboardingScreen
 import com.ledgerly.app.ui.screens.SettingsScreen
 import com.ledgerly.app.ui.sheets.BudgetAmountDialog
 import com.ledgerly.app.ui.sheets.BudgetSheet
+import com.ledgerly.app.ui.sheets.CategorySheet
 import com.ledgerly.app.ui.sheets.RecurringSheet
 import com.ledgerly.app.ui.sheets.TransactionSheet
 import com.ledgerly.app.ui.theme.LedgerlyTheme
 import com.ledgerly.app.util.BudgetMath
+import com.ledgerly.app.util.Cycles
 import com.ledgerly.app.util.DateFormats
 import com.ledgerly.app.util.ReleaseInfo
 import com.ledgerly.app.util.UpdateCheck
@@ -96,6 +99,7 @@ fun LedgerlyApp(
     val budgets by viewModel.budgets.collectAsState()
     val monthOverrides by viewModel.monthOverrides.collectAsState()
     val recurring by viewModel.recurring.collectAsState()
+    val categories by viewModel.categories.collectAsState()
     val dueRecurring by viewModel.dueRecurring.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val month by viewModel.month.collectAsState()
@@ -130,6 +134,7 @@ fun LedgerlyApp(
                 budgets = budgets,
                 monthOverrides = monthOverrides,
                 recurring = recurring,
+                categories = categories,
                 dueRecurring = dueRecurring,
                 settings = settings,
                 month = month,
@@ -161,6 +166,7 @@ private fun MainScaffold(
     budgets: Map<String, Long>,
     monthOverrides: Set<String>,
     recurring: List<Recurring>,
+    categories: List<Category>,
     dueRecurring: List<Recurring>,
     settings: AppSettings,
     month: YearMonth,
@@ -179,6 +185,8 @@ private fun MainScaffold(
     var showIncomeDialog by remember { mutableStateOf(false) }
     var showRecurringSheet by remember { mutableStateOf(false) }
     var editingRecurring by remember { mutableStateOf<Recurring?>(null) }
+    var showCategorySheet by remember { mutableStateOf(false) }
+    var editingCategory by remember { mutableStateOf<Category?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -186,8 +194,13 @@ private fun MainScaffold(
     var updating by remember { mutableStateOf(false) }
 
     val currency = settings.currency
+    val cycleLabel = remember(month, settings.monthStartDay) {
+        Cycles.label(month, settings.monthStartDay)
+    }
     val ruleMode = settings.budgetStyle == BudgetStyle.RULE_50_30_20
-    val stats = remember(transactions, month) { BudgetMath.summarize(transactions, month) }
+    val stats = remember(transactions, month, settings.monthStartDay) {
+        BudgetMath.summarize(transactions, month, settings.monthStartDay)
+    }
     val now = remember { YearMonth.now() }
     val isCurrentMonth = month == now
     val canGoNext = month < now
@@ -241,6 +254,23 @@ private fun MainScaffold(
 
     // Rendered before the settings branch: the sheet is opened from Settings, and it draws in
     // its own window, so composing it here keeps it reachable from both screens.
+    if (showCategorySheet) {
+        CategorySheet(
+            editing = editingCategory,
+            usageCount = editingCategory?.let { viewModel.usageOf(it.key) } ?: 0,
+            onDismiss = { showCategorySheet = false },
+            onSave = { category ->
+                viewModel.saveCategory(category)
+                showCategorySheet = false
+            },
+            onDelete = { category ->
+                if (Categories.isBuiltIn(category.key)) viewModel.hideCategory(category)
+                else viewModel.deleteCategory(category.key)
+                showCategorySheet = false
+            }
+        )
+    }
+
     if (showRecurringSheet) {
         RecurringSheet(
             editing = editingRecurring,
@@ -263,6 +293,7 @@ private fun MainScaffold(
             settings = settings,
             transactions = transactions,
             recurring = recurring,
+            categories = categories,
             canUseAppLock = LocalContext.current.let { context ->
                 context.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
             },
@@ -276,6 +307,7 @@ private fun MainScaffold(
             onIncomeChange = viewModel::setMonthlyIncome,
             onBudgetStyleChange = viewModel::setBudgetStyle,
             onThemeChange = viewModel::setTheme,
+            onMonthStartChange = viewModel::setMonthStartDay,
             onAppLockChange = viewModel::setAppLock,
             onCheckUpdatesChange = viewModel::setCheckUpdates,
             onCheckForUpdates = { viewModel.checkForUpdates() },
@@ -294,6 +326,14 @@ private fun MainScaffold(
             onEditRecurring = { item ->
                 editingRecurring = item
                 showRecurringSheet = true
+            },
+            onAddCategory = {
+                editingCategory = null
+                showCategorySheet = true
+            },
+            onEditCategory = { category ->
+                editingCategory = category
+                showCategorySheet = true
             }
         )
         return
@@ -375,6 +415,7 @@ private fun MainScaffold(
                     canGoNext = canGoNext,
                     onPreviousMonth = { viewModel.selectMonth(month.minusMonths(1)) },
                     onNextMonth = { viewModel.selectMonth(month.plusMonths(1)) },
+                    cycleLabel = cycleLabel,
                     onSettings = { showSettings = true },
                     onSeeAll = { selectedTab = 1 },
                     onAddTransaction = { openEditor(null) },
@@ -405,6 +446,7 @@ private fun MainScaffold(
                     canGoNext = canGoNext,
                     onPreviousMonth = { viewModel.selectMonth(month.minusMonths(1)) },
                     onNextMonth = { viewModel.selectMonth(month.plusMonths(1)) },
+                    cycleLabel = cycleLabel,
                     onAddTransaction = { openEditor(null) },
                     onTransactionClick = { openEditor(it) },
                     onDeleteTransaction = { deleteWithUndo(it) }
@@ -422,6 +464,7 @@ private fun MainScaffold(
                     canGoNext = canGoNext,
                     onPreviousMonth = { viewModel.selectMonth(month.minusMonths(1)) },
                     onNextMonth = { viewModel.selectMonth(month.plusMonths(1)) },
+                    cycleLabel = cycleLabel,
                     onAddBudget = {
                         budgetSheetCategory = null
                         showBudgetSheet = true
@@ -444,6 +487,7 @@ private fun MainScaffold(
                     canGoNext = canGoNext,
                     onPreviousMonth = { viewModel.selectMonth(month.minusMonths(1)) },
                     onNextMonth = { viewModel.selectMonth(month.plusMonths(1)) },
+                    cycleLabel = cycleLabel,
                     onAddTransaction = { openEditor(null) }
                 )
             }
@@ -454,6 +498,7 @@ private fun MainScaffold(
         TransactionSheet(
             editing = editorTransaction,
             currency = currency,
+            categories = categories,
             onDismiss = { showEditor = false },
             onSave = { transaction ->
                 if (editorTransaction != null) {

@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,8 +35,10 @@ import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.LightMode
@@ -83,9 +87,11 @@ import com.ledgerly.app.BuildConfig
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.SampleData
 import com.ledgerly.app.data.ThemeMode
+import com.ledgerly.app.data.TxType
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.components.CategoryBadge
 import com.ledgerly.app.ui.components.LedgerCard
@@ -102,12 +108,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
     transactions: List<Transaction>,
     recurring: List<Recurring>,
+    categories: List<Category>,
     canUseAppLock: Boolean,
     availableUpdate: ReleaseInfo?,
     updateStatus: UpdateCheck.Status,
@@ -119,6 +126,7 @@ fun SettingsScreen(
     onIncomeChange: (Long) -> Unit,
     onBudgetStyleChange: (BudgetStyle) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
+    onMonthStartChange: (Int) -> Unit,
     onAppLockChange: (Boolean) -> Unit,
     onCheckUpdatesChange: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit,
@@ -129,7 +137,9 @@ fun SettingsScreen(
     onRestoreRequested: suspend (String, Boolean) -> String,
     onImportCsvRequested: suspend (String) -> String,
     onAddRecurring: () -> Unit,
-    onEditRecurring: (Recurring) -> Unit
+    onEditRecurring: (Recurring) -> Unit,
+    onAddCategory: () -> Unit,
+    onEditCategory: (Category) -> Unit
 ) {
     var showNameDialog by remember { mutableStateOf(false) }
     var showCurrencyDialog by remember { mutableStateOf(false) }
@@ -137,6 +147,7 @@ fun SettingsScreen(
     var showIncomeDialog by remember { mutableStateOf(false) }
     var showStyleDialog by remember { mutableStateOf(false) }
     var showSampleConfirm by remember { mutableStateOf(false) }
+    var showStartDayDialog by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -319,6 +330,17 @@ fun SettingsScreen(
                     },
                     onClick = { showStyleDialog = true }
                 )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.CalendarMonth,
+                    title = "Month starts on",
+                    subtitle = if (settings.monthStartDay == 1) {
+                        "1st \u00b7 calendar month"
+                    } else {
+                        "Day ${settings.monthStartDay} of each month \u00b7 matches your payday"
+                    },
+                    onClick = { showStartDayDialog = true }
+                )
                 if (settings.budgetStyle == BudgetStyle.RULE_50_30_20) {
                     RowDivider(Modifier.padding(horizontal = 16.dp))
                     SettingsRow(
@@ -412,6 +434,34 @@ fun SettingsScreen(
                     onClick = { showClearConfirm = true },
                     danger = true
                 )
+            }
+
+            SectionLabel("Categories")
+            LedgerCard(contentPadding = PaddingValues(0.dp)) {
+                SettingsRow(
+                    icon = Icons.Rounded.EmojiEmotions,
+                    title = "Add a category",
+                    subtitle = "Choose what it counts as: needs, wants or savings",
+                    onClick = onAddCategory
+                )
+                val visible = categories.filter { !it.hidden }
+                listOf(TxType.EXPENSE to "Expenses", TxType.INCOME to "Income").forEach { (kind, label) ->
+                    val group = visible.filter { it.type == kind }
+                    if (group.isEmpty()) return@forEach
+                    RowDivider(Modifier.padding(horizontal = 16.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp)
+                    )
+                    group.forEach { category ->
+                        CategoryRow(
+                            category = category,
+                            onClick = { onEditCategory(category) }
+                        )
+                    }
+                }
             }
 
             SectionLabel("Automation")
@@ -658,6 +708,53 @@ fun SettingsScreen(
         )
     }
 
+    if (showStartDayDialog) {
+        AlertDialog(
+            onDismissRequest = { showStartDayDialog = false },
+            title = { Text("Month starts on") },
+            text = {
+                Column {
+                    Text(
+                        "Pick the day your money arrives. Budgets and totals then run from " +
+                            "that day to the day before the next one, instead of the calendar month."
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(1, 5, 10, 15, 20, 25, 28).forEach { day ->
+                            val selected = settings.monthStartDay == day
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .clickable {
+                                        onMonthStartChange(day)
+                                        showStartDayDialog = false
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 9.dp)
+                            ) {
+                                Text(
+                                    text = if (day == 1) "1st" else "$day",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showStartDayDialog = false }) { Text("Done") }
+            }
+        )
+    }
+
     if (showSampleConfirm) {
         AlertDialog(
             onDismissRequest = { showSampleConfirm = false },
@@ -736,6 +833,47 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { pendingRestoreJson = null }) { Text("Cancel") }
             }
+        )
+    }
+}
+
+@Composable
+private fun CategoryRow(category: Category, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryBadge(category = category, size = 34.dp, emojiSize = 16.sp)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = category.label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        val bucket = category.bucket
+        if (bucket != null && category.type == TxType.EXPENSE) {
+            Text(
+                text = "${bucket.emoji} ${bucket.short}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(18.dp)
         )
     }
 }

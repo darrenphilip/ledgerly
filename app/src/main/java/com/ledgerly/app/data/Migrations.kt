@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteDatabase
  */
 object Migrations {
 
-    const val VERSION = 2
+    const val VERSION = 3
 
     fun create(db: SQLiteDatabase) {
         db.execSQL(
@@ -27,6 +27,7 @@ object Migrations {
         db.execSQL("CREATE INDEX idx_transactions_date ON transactions(date_epoch_day)")
         createBudgets(db)
         createRecurring(db)
+        createCategories(db)
     }
 
     fun upgrade(db: SQLiteDatabase, from: Int) {
@@ -34,9 +35,31 @@ object Migrations {
         while (version < VERSION) {
             when (version) {
                 1 -> upgradeTo2(db)
+                2 -> upgradeTo3(db)
             }
             version++
         }
+    }
+
+    /** v3 adds user-defined categories; built-ins stay compiled in. */
+    private fun upgradeTo3(db: SQLiteDatabase) {
+        createCategories(db)
+    }
+
+    private fun createCategories(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS categories (
+                key TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                emoji TEXT NOT NULL,
+                color INTEGER NOT NULL,
+                bucket TEXT,
+                type TEXT NOT NULL,
+                hidden INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
     }
 
     private fun createBudgets(db: SQLiteDatabase) {
