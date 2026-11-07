@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ledgerly.app.data.Reminders
 import com.ledgerly.app.ui.AppViewModel
 import com.ledgerly.app.ui.LedgerlyApp
 
@@ -19,8 +20,15 @@ class MainActivity : ComponentActivity() {
     private var stoppedAt = 0L
     private var locked by mutableStateOf(false)
     private var pendingAdd by mutableStateOf(false)
+    private var pendingReview by mutableStateOf(false)
 
     private val viewModel: AppViewModel by lazy { AppViewModel(application) }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == ACTION_ADD_EXPENSE) pendingAdd = true
+        if (intent.action == Reminders.ACTION_REVIEW) pendingReview = true
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,21 +36,21 @@ class MainActivity : ComponentActivity() {
         val keyguard = getSystemService(KeyguardManager::class.java)
         locked = viewModel.settings.value.appLock && keyguard?.isDeviceSecure == true
         pendingAdd = intent?.action == ACTION_ADD_EXPENSE
+        pendingReview = intent?.action == Reminders.ACTION_REVIEW
+        Reminders.ensureChannels(this)
         setContent {
             LedgerlyApp(
                 viewModel = viewModel,
                 locked = locked,
                 onUnlock = { locked = false },
                 pendingAdd = pendingAdd,
-                onPendingAddHandled = { pendingAdd = false }
+                onPendingAddHandled = { pendingAdd = false },
+                pendingReview = pendingReview,
+                onPendingReviewHandled = { pendingReview = false }
             )
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        if (intent.action == ACTION_ADD_EXPENSE) pendingAdd = true
-    }
 
     override fun onStop() {
         super.onStop()

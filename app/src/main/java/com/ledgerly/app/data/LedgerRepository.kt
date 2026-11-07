@@ -96,7 +96,10 @@ class LedgerRepository(context: Context) {
             onboarded = prefs.getBoolean("onboarded", false),
             appLock = prefs.getBoolean("app_lock", false),
             checkUpdates = prefs.getBoolean("check_updates", true),
-            monthStartDay = prefs.getInt("month_start_day", 1).coerceIn(1, 28)
+            monthStartDay = prefs.getInt("month_start_day", 1).coerceIn(1, 28),
+            remindToLog = prefs.getBoolean("remind_to_log", false),
+            weeklyReview = prefs.getBoolean("weekly_review", false),
+            capturePayments = prefs.getBoolean("capture_payments", false)
         )
     }
 
@@ -112,7 +115,12 @@ class LedgerRepository(context: Context) {
             .putBoolean("app_lock", settings.appLock)
             .putBoolean("check_updates", settings.checkUpdates)
             .putInt("month_start_day", settings.monthStartDay.coerceIn(1, 28))
+            .putBoolean("remind_to_log", settings.remindToLog)
+            .putBoolean("weekly_review", settings.weeklyReview)
+            .putBoolean("capture_payments", settings.capturePayments)
             .apply()
+        CaptureStore.setEnabled(appContext, settings.capturePayments)
+        CaptureStore.setCurrency(appContext, settings.currency)
     }
 
     fun backup(): Backup = Backup(

@@ -71,6 +71,13 @@ lives in a local SQLite database on the device.
   settings; restore it by replacing everything or merging into what's on the device.
 - **CSV import** alongside export, so an export is a usable backup — duplicates are skipped
   and unreadable rows are reported rather than silently dropped.
+- **Reminders**: an evening nudge to log the day (it knows whether you already have), and an
+  optional weekly summary. Both off until you turn them on, both previewable from Settings.
+- **Payments from your notifications**: with your permission, Ledgerly watches bank and wallet
+  notifications for amounts, then shows a card on Home — "Rp 87.500 · payment" — with category
+  chips and a one-tap Add. Conservative by design: the text must contain both an amount and a
+  payment word, and **nothing is written to your ledger until you confirm it**. You can also
+  hand it to a category of your choosing, or dismiss it.
 - **In-app updates**: Ledgerly asks the public GitHub release feed for a newer version and,
   if there is one, shows a banner on Home; one tap downloads the APK and hands it to the
   system installer.
@@ -197,11 +204,12 @@ release only needs the tag and the notes file to exist.
 
 ## Tests
 
-93 JVM unit tests (plus Robolectric for the database) cover money parsing/formatting
+107 JVM unit tests (plus Robolectric for the database) cover money parsing/formatting
 (including zero-decimal currencies like JPY and whole-unit currencies like IDR), the budgeting
 math (summaries, slices, budget status, projections, trends, the 50/30/20 split and bucket
 aggregation), CSV import/export round-trips, the backup codec, recurring date rollover, custom
-category bucketing, payday budget cycles, and the schema migration from v1.
+category bucketing, payday budget cycles, notification parsing (amounts, direction words, and the
+cases it must refuse), and the schema migration from v1.
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -209,9 +217,24 @@ category bucketing, payday budget cycles, and the schema migration from v1.
 
 ## Privacy
 
-Ledgerly holds **two permissions**, both only for getting updates: `INTERNET` (to ask GitHub
-for the latest release and download its APK) and `REQUEST_INSTALL_PACKAGES` (to hand that APK
-to the system installer). Nothing else leaves the device.
+Ledgerly holds these permissions, and nothing else:
+
+- `INTERNET` — to ask GitHub for the latest release and download its APK.
+- `REQUEST_INSTALL_PACKAGES` — to hand that APK to the system installer.
+- `POST_NOTIFICATIONS` — only if you turn reminders on.
+- Notification access (a system switch, not a manifest permission) — only if you turn payment
+  detection on.
+
+Payment detection is the one place Ledgerly reads another app's content, so it is worth being
+precise about:
+
+- It is **off until you enable it**, and you enable it in Android's own settings screen.
+- It only looks at notification text, only to find an amount next to a payment word. The raw
+  text of a match is kept (up to 160 characters) so you can see why it was suggested, and it is
+  discarded as soon as you add or dismiss it. Nothing else is stored, ever.
+- Nothing is sent anywhere. The parse happens on the device, and no transaction is created
+  without you tapping **Add**.
+- Turning the switch off stops the service reading anything.
 
 - No analytics, no telemetry, no crash reporting, no ad SDKs.
 - The only request the app makes is `GET /repos/darrenphilip/ledgerly/releases/latest`, plus

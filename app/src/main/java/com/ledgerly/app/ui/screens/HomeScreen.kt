@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
+import com.ledgerly.app.data.Category
+import com.ledgerly.app.data.CaptureStore
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.ui.components.CategoryBadge
@@ -58,6 +60,7 @@ import com.ledgerly.app.ui.components.MonthSwitcher
 import com.ledgerly.app.ui.components.ProgressBar
 import com.ledgerly.app.ui.components.SectionHeader
 import com.ledgerly.app.ui.components.StatTile
+import com.ledgerly.app.ui.components.PendingPaymentsCard
 import com.ledgerly.app.ui.components.TransactionRow
 import com.ledgerly.app.ui.components.UpdateBanner
 import com.ledgerly.app.ui.theme.ledgerColors
@@ -82,6 +85,7 @@ fun HomeScreen(
     budgetStyle: BudgetStyle,
     currency: String,
     name: String,
+    categories: List<Category> = Categories.expense,
     isCurrentMonth: Boolean,
     cycleLabel: String = "",
 
@@ -102,7 +106,10 @@ fun HomeScreen(
     onManageRecurring: () -> Unit = {},
     availableUpdate: ReleaseInfo? = null,
     updating: Boolean = false,
-    onUpdate: () -> Unit = {}
+    onUpdate: () -> Unit = {},
+    pendingPayments: List<CaptureStore.Suggestion> = emptyList(),
+    onAcceptPayment: (CaptureStore.Suggestion, String) -> Unit = { _, _ -> },
+    onDismissPayment: (String) -> Unit = {}
 ) {
     val statuses = remember(budgets, stats) { BudgetMath.budgetStatuses(budgets, stats) }
     val ruleMode = budgetStyle == BudgetStyle.RULE_50_30_20
@@ -134,6 +141,18 @@ fun HomeScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (pendingPayments.isNotEmpty()) {
+            item {
+                PendingPaymentsCard(
+                    suggestions = pendingPayments,
+                    currency = currency,
+                    categories = categories,
+                    onAccept = onAcceptPayment,
+                    onDismiss = onDismissPayment
+                )
+            }
+        }
+
         if (availableUpdate != null) {
             item {
                 UpdateBanner(

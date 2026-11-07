@@ -17,7 +17,7 @@ Target: **minSdk 26, targetSdk/compileSdk 35, JDK 17**.
 ## 2. Commands
 
 ```bash
-./gradlew :app:testDebugUnitTest    # 63 tests (JVM + Robolectric) — must stay green
+./gradlew :app:testDebugUnitTest    # 107 tests (JVM + Robolectric) — must stay green
 ./gradlew :app:assembleDebug        # debug APK  (com.ledgerly.app.debug)
 ./gradlew :app:assembleRelease      # release APK (signed if keys exist, else unsigned)
 ./gradlew lintVitalRelease          # runs automatically as part of assembleRelease
@@ -41,6 +41,8 @@ app/src/main/java/com/ledgerly/app/
   ui/sheets/               bottom sheets + dialogs
   ui/theme/                color scheme, typography, shapes, custom tokens
   util/                    Money, BudgetMath, Cycles, RecurringMath, BackupCodec, Json, CSV
+  data/Reminders.kt        notification channels + texts
+  data/CaptureParser.kt    pure: reads an amount out of a bank notification (unit tested)
 app/src/test/java/…        JVM unit tests for pure logic; MigrationTest uses Robolectric
 ```
 
@@ -60,10 +62,17 @@ app/src/test/java/…        JVM unit tests for pure logic; MigrationTest uses R
   (`Category.bucket`), not a hard-coded list in the UI.
 - All aggregation/insight logic is a **pure function** in `util/BudgetMath.kt`.
   If you add a stat, add a unit test for it.
-- Persistence stays on-device. The app holds exactly two permissions, both for updates:
-  `INTERNET` and `REQUEST_INSTALL_PACKAGES`. Any further permission is a design decision that
-  must be called out explicitly. Keep the network surface to `data/UpdateClient.kt` — one GET
-  for the release feed plus the APK download. Don't add analytics or identifiers.
+- Persistence stays on-device. The app holds four permissions, all explained in the README:
+  `INTERNET` and `REQUEST_INSTALL_PACKAGES` for updates, `POST_NOTIFICATIONS` for reminders, and
+  notification access (a system switch) for payment detection. Any further permission is a
+  design decision that must be called out explicitly. Keep the network surface to
+  `data/UpdateClient.kt` — one GET for the release feed plus the APK download. Don't add
+  analytics or identifiers.
+- Reading other apps' notifications is the most sensitive thing this app does. Keep it off by
+  default, keep the parsing in `CaptureParser` (pure, tested), never write a transaction
+  automatically, and never send the text anywhere.
+- Sheets and dialogs must let back close the keyboard first: use `ImeBackHandler` and set
+  `ModalBottomSheetProperties(shouldDismissOnBackPress = false)` so there is one handler, not two.
 - Schema changes go through `data/Migrations.kt`: bump `Migrations.VERSION`, add a step,
   and extend `MigrationTest` so an upgrade from the previous version keeps every row.
   `LedgerDatabase.onUpgrade` must never drop a table that holds user data.

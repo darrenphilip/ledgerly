@@ -2,5 +2,6 @@
 <resources>
     <string name="app_name">Ledgerly</string>
     <string name="shortcut_add_expense_short">Add expense</string>
+    <string name="capture_service_label">Ledgerly payment capture</string>
     <string name="shortcut_add_expense_long">Log an expense</string>
 </resources>

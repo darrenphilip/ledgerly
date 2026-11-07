@@ -5,14 +5,18 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ledgerly.app.BuildConfig
 import com.ledgerly.app.data.AppSettings
+import com.ledgerly.app.data.CaptureStore
 import com.ledgerly.app.data.Budget
 import com.ledgerly.app.data.BudgetStyle
 import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.LedgerRepository
+import com.ledgerly.app.data.Reminders
+import com.ledgerly.app.data.ReminderWorker
 import com.ledgerly.app.data.Recurring
 import com.ledgerly.app.data.ThemeMode
 import com.ledgerly.app.data.Transaction
+import com.ledgerly.app.data.TxType
 import com.ledgerly.app.data.UpdateClient
 import com.ledgerly.app.ui.screens.OnboardingResult
 import com.ledgerly.app.util.Backup
@@ -71,11 +75,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _availableUpdate = MutableStateFlow<ReleaseInfo?>(null)
     val availableUpdate: StateFlow<ReleaseInfo?> = _availableUpdate.asStateFlow()
 
+    private val _capture = MutableStateFlow(CaptureStore.State())
+    val capture: StateFlow<CaptureStore.State> = _capture.asStateFlow()
+
     private val _updateStatus = MutableStateFlow(UpdateCheck.Status())
     val updateStatus: StateFlow<UpdateCheck.Status> = _updateStatus.asStateFlow()
 
     init {
         viewModelScope.launch { reload() }
+        viewModelScope.launch { reloadCapture() }
+        ReminderWorker.sync(
+            getApplication(),
+            _settings.value.remindToLog || _settings.value.weeklyReview
+        )
     }
 
     private suspend fun reload() {
@@ -190,6 +202,76 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setName(name: String) = saveSettings(_settings.value.copy(name = name.trim()))
 
     fun setAppLock(enabled: Boolean) = saveSettings(_settings.value.copy(appLock = enabled))
+
+    /** Turns the daily nudge on or off and re-schedules the background check. */
+    fun setRemindToLog(enabled: Boolean) {
+        saveSettings(_settings.value.copy(remindToLog = enabled))
+        ReminderWorker.sync(getApplication(), enabled || _settings.value.weeklyReview)
+        viewModelScope.launch { reloadCapture() }
+    }
+
+    fun setWeeklyReview(enabled: Boolean) {
+        saveSettings(_settings.value.copy(weeklyReview = enabled))
+        ReminderWorker.sync(getApplication(), enabled || _settings.value.remindToLog)
+    }
+
+    fun setCapturePayments(enabled: Boolean) {
+        saveSettings(_settings.value.copy(capturePayments = enabled))
+        CaptureStore.setEnabled(getApplication(), enabled)
+        CaptureStore.setCurrency(getApplication(), _settings.value.currency)
+        viewModelScope.launch { reloadCapture() }
+    }
+
+    private suspend fun reloadCapture() {
+        val state = withContext(Dispatchers.IO) { CaptureStore.read(getApplication()) }
+        _capture.value = state
+    }
+
+    fun dismissCapture(id: String) {
+        CaptureStore.dismiss(getApplication(), id)
+        viewModelScope.launch { reloadCapture() }
+    }
+
+    fun clearCapture() {
+        CaptureStore.clear(getApplication())
+        viewModelScope.launch { reloadCapture() }
+    }
+
+    /** Turns a detected payment into a real transaction, then forgets it. */
+    fun acceptCapture(suggestion: CaptureStore.Suggestion, categoryKey: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                repository.addTransaction(
+                    Transaction(
+                        type = suggestion.type,
+                        amountCents = suggestion.amountCents,
+                        categoryKey = categoryKey,
+                        note = suggestion.source,
+                        date = suggestion.date
+                    )
+                )
+                CaptureStore.dismiss(getApplication(), suggestion.id)
+            }
+            reload()
+            reloadCapture()
+        }
+    }
+
+    /** Fires a nudge right now, so the user can see what it looks like. */
+    fun previewReminder() {
+        val context = getApplication<Application>()
+        Reminders.ensureChannels(context)
+        val today = LocalDate.now()
+        val spentToday = _transactions.value
+            .filter { it.type == TxType.EXPENSE && it.date == today }
+            .sumOf { it.amountCents }
+        Reminders.showDailyNudge(
+            context = context,
+            spentTodayCents = spentToday,
+            currency = _settings.value.currency,
+            name = _settings.value.name
+        )
+    }
 
     fun setMonthStartDay(day: Int) {
         val settings = _settings.value.copy(monthStartDay = day.coerceIn(1, 28))

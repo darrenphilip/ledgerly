@@ -40,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +70,7 @@ import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.Transaction
 import com.ledgerly.app.data.TxType
+import com.ledgerly.app.ui.components.ImeBackHandler
 import com.ledgerly.app.ui.theme.ledgerColors
 import com.ledgerly.app.util.Currencies
 import com.ledgerly.app.util.DateFormats
@@ -119,8 +121,11 @@ fun TransactionSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        // Back is handled by ImeBackHandler below so the keyboard closes first.
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false)
     ) {
+        ImeBackHandler(onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -37,19 +37,24 @@ import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.SettingsBrightness
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -139,7 +144,13 @@ fun SettingsScreen(
     onAddRecurring: () -> Unit,
     onEditRecurring: (Recurring) -> Unit,
     onAddCategory: () -> Unit,
-    onEditCategory: (Category) -> Unit
+    onEditCategory: (Category) -> Unit,
+    onRemindChange: (Boolean) -> Unit,
+    onWeeklyReviewChange: (Boolean) -> Unit,
+    onPreviewReminder: () -> Unit,
+    onCaptureChange: (Boolean) -> Unit,
+    onOpenNotificationAccess: () -> Unit,
+    canReadNotifications: Boolean
 ) {
     var showNameDialog by remember { mutableStateOf(false) }
     var showCurrencyDialog by remember { mutableStateOf(false) }
@@ -515,6 +526,70 @@ fun SettingsScreen(
                     },
                     onClick = { onCheckUpdatesChange(!settings.checkUpdates) }
                 )
+            }
+
+            SectionLabel("Reminders")
+            LedgerCard(contentPadding = PaddingValues(0.dp)) {
+                SettingsRow(
+                    icon = Icons.Rounded.NotificationsActive,
+                    title = "Daily reminder",
+                    subtitle = if (settings.remindToLog) {
+                        "A nudge each evening if nothing is logged"
+                    } else {
+                        "Off · you won't be reminded to log"
+                    },
+                    onClick = { onRemindChange(!settings.remindToLog) }
+                )
+                RowDivider(Modifier.padding(horizontal = 16.dp))
+                SettingsRow(
+                    icon = Icons.Rounded.Insights,
+                    title = "Weekly review",
+                    subtitle = if (settings.weeklyReview) {
+                        "A short summary of the last 7 days"
+                    } else {
+                        "Off · no weekly summary"
+                    },
+                    onClick = { onWeeklyReviewChange(!settings.weeklyReview) }
+                )
+                if (settings.remindToLog || settings.weeklyReview) {
+                    RowDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsRow(
+                        icon = Icons.Rounded.Visibility,
+                        title = "Preview a reminder",
+                        subtitle = "Shows the notification without waiting for tonight",
+                        onClick = onPreviewReminder
+                    )
+                }
+            }
+
+            SectionLabel("Payments from other apps")
+            LedgerCard(contentPadding = PaddingValues(0.dp)) {
+                SettingsRow(
+                    icon = Icons.Rounded.AccountBalance,
+                    title = "Detect payments",
+                    subtitle = when {
+                        !canReadNotifications -> "Needs notification access for Ledgerly"
+                        settings.capturePayments -> "Watching bank and wallet notifications"
+                        else -> "Off · Ledgerly reads no other app's notifications"
+                    },
+                    onClick = {
+                        if (canReadNotifications) {
+                            onCaptureChange(!settings.capturePayments)
+                        } else {
+                            onOpenNotificationAccess()
+                        }
+                    }
+                )
+                if (settings.capturePayments) {
+                    RowDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsRow(
+                        icon = Icons.Rounded.Shield,
+                        title = "What this reads",
+                        subtitle = "Only notifications with an amount and a payment word. " +
+                            "Nothing is saved until you confirm.",
+                        onClick = {}
+                    )
+                }
             }
 
             SectionLabel("Privacy")

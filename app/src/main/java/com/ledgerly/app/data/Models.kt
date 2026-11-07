@@ -98,7 +98,13 @@ data class AppSettings(
     /** Ask GitHub for a newer release when the app starts. */
     val checkUpdates: Boolean = true,
     /** Day of the month a fresh budget cycle starts, 1-28. */
-    val monthStartDay: Int = 1
+    val monthStartDay: Int = 1,
+    /** Daily nudge to log spending. */
+    val remindToLog: Boolean = false,
+    /** Weekly money summary. */
+    val weeklyReview: Boolean = false,
+    /** Read bank/wallet notifications and offer to add the amounts. */
+    val capturePayments: Boolean = false
 )
 
 data class Category(

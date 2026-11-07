@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Category
 import com.ledgerly.app.ui.components.CategoryBadge
+import com.ledgerly.app.ui.components.ImeBackHandler
 import com.ledgerly.app.util.Currencies
 import com.ledgerly.app.util.Money
 
@@ -79,12 +81,16 @@ fun BudgetSheet(
     val amountCents = Money.parseToCents(amountText, currency)
     val existingCategory = existingCategoryKey?.let { Categories.of(it) }
 
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        // Back is handled by ImeBackHandler below so the keyboard closes first.
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false)
     ) {
+        ImeBackHandler(onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxWidth()

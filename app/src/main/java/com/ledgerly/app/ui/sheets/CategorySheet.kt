@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -51,6 +52,7 @@ import com.ledgerly.app.data.Bucket
 import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.TxType
+import com.ledgerly.app.ui.components.ImeBackHandler
 
 /** Emoji choices for the picker. Grouped loosely: money, life, fun. */
 private val emojiChoices = listOf(
@@ -88,12 +90,16 @@ fun CategorySheet(
     val validLabel = label.trim().isNotEmpty()
     val expenseType = type == TxType.EXPENSE
 
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        // Back is handled by ImeBackHandler below so the keyboard closes first.
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false)
     ) {
+        ImeBackHandler(onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxWidth()

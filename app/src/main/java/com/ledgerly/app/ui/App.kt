@@ -45,9 +45,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.os.Build
+import com.ledgerly.app.data.Reminders
+import com.ledgerly.app.ui.components.NotificationAccess
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ledgerly.app.data.AppSettings
 import com.ledgerly.app.data.BudgetStyle
+import com.ledgerly.app.data.CaptureStore
 import com.ledgerly.app.data.Categories
 import com.ledgerly.app.data.Category
 import com.ledgerly.app.data.Recurring
@@ -93,7 +100,9 @@ fun LedgerlyApp(
     locked: Boolean = false,
     onUnlock: () -> Unit = {},
     pendingAdd: Boolean = false,
-    onPendingAddHandled: () -> Unit = {}
+    onPendingAddHandled: () -> Unit = {},
+    pendingReview: Boolean = false,
+    onPendingReviewHandled: () -> Unit = {}
 ) {
     val transactions by viewModel.transactions.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
@@ -106,6 +115,7 @@ fun LedgerlyApp(
     val loading by viewModel.loading.collectAsState()
     val availableUpdate by viewModel.availableUpdate.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
+    val capture by viewModel.capture.collectAsState()
 
     // One check per launch, opt-out in Settings. Failure is silent.
     LaunchedEffect(Unit) {
@@ -141,7 +151,10 @@ fun LedgerlyApp(
                 pendingAdd = pendingAdd,
                 onPendingAddHandled = onPendingAddHandled,
                 availableUpdate = availableUpdate,
-                updateStatus = updateStatus
+                updateStatus = updateStatus,
+                capture = capture,
+                pendingReview = pendingReview,
+                onPendingReviewHandled = onPendingReviewHandled
             )
         }
     }
@@ -173,7 +186,10 @@ private fun MainScaffold(
     pendingAdd: Boolean,
     onPendingAddHandled: () -> Unit,
     availableUpdate: ReleaseInfo?,
-    updateStatus: UpdateCheck.Status
+    updateStatus: UpdateCheck.Status,
+    capture: CaptureStore.State,
+    pendingReview: Boolean,
+    onPendingReviewHandled: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -187,11 +203,33 @@ private fun MainScaffold(
     var editingRecurring by remember { mutableStateOf<Recurring?>(null) }
     var showCategorySheet by remember { mutableStateOf(false) }
     var editingCategory by remember { mutableStateOf<Category?>(null) }
+    var notificationPermissionCallback by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+
+    fun onNotificationPermission(granted: Boolean) {
+        notificationPermissionCallback?.invoke(granted)
+        notificationPermissionCallback = null
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var updating by remember { mutableStateOf(false) }
+
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        onNotificationPermission(granted)
+    }
+    val requestNotifications: ((Boolean) -> Unit) -> Unit = { onResult ->
+        if (Reminders.canNotify(context)) {
+            onResult(true)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionCallback = onResult
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onResult(true)
+        }
+    }
 
     val currency = settings.currency
     val cycleLabel = remember(month, settings.monthStartDay) {
@@ -244,6 +282,13 @@ private fun MainScaffold(
 
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = !showSettings && selectedTab != 0) { selectedTab = 0 }
+
+    LaunchedEffect(pendingReview) {
+        if (pendingReview) {
+            selectedTab = 0
+            onPendingReviewHandled()
+        }
+    }
 
     LaunchedEffect(pendingAdd) {
         if (pendingAdd) {
@@ -334,7 +379,31 @@ private fun MainScaffold(
             onEditCategory = { category ->
                 editingCategory = category
                 showCategorySheet = true
-            }
+            },
+            onRemindChange = { enabled ->
+                if (enabled) {
+                    // Ask for the notification permission before promising a reminder.
+                    requestNotifications { granted ->
+                        viewModel.setRemindToLog(granted)
+                        if (granted) viewModel.previewReminder()
+                    }
+                } else {
+                    viewModel.setRemindToLog(false)
+                }
+            },
+            onWeeklyReviewChange = { enabled ->
+                if (enabled) {
+                    requestNotifications { granted -> viewModel.setWeeklyReview(granted) }
+                } else {
+                    viewModel.setWeeklyReview(false)
+                }
+            },
+            onPreviewReminder = { viewModel.previewReminder() },
+            onCaptureChange = { viewModel.setCapturePayments(it) },
+            onOpenNotificationAccess = {
+                NotificationAccess.request(context)
+            },
+            canReadNotifications = NotificationAccess.isGranted(context)
         )
         return
     }
@@ -436,7 +505,12 @@ private fun MainScaffold(
                     onManageRecurring = { showSettings = true },
                     availableUpdate = availableUpdate,
                     updating = updating,
-                    onUpdate = { installUpdate() }
+                    onUpdate = { installUpdate() },
+                    pendingPayments = capture.suggestions,
+                    onAcceptPayment = { suggestion, categoryKey ->
+                        viewModel.acceptCapture(suggestion, categoryKey)
+                    },
+                    onDismissPayment = { id -> viewModel.dismissCapture(id) }
                 )
 
                 1 -> ActivityScreen(
